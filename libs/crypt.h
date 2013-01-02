@@ -7,10 +7,10 @@ struct CodeTable
 	unsigned char decode[256];
 };
 
-void BuildTable(CodeTable* ct, const unsigned char* passmd5, const long long timestamp);
+void BuildTable(struct CodeTable* ct, const unsigned char* passmd5, const long long timestamp);
 
-void Encrypt(const CodeTable* ct, const void* input, void* output, unsigned int len);
+void Encrypt(const struct CodeTable* ct, const void* input, void* output, unsigned int len);
 
-void Decrypt(const CodeTable* ct, const void* input, void* output, unsigned int len);
+void Decrypt(const struct CodeTable* ct, const void* input, void* output, unsigned int len);
 
 #endif

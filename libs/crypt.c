@@ -5,8 +5,9 @@
 #include "crypt.h"
 
 // password md5 must have a length of 16
-void BuildTable(CodeTable* ct, const unsigned char* passmd5, const long long timestamp)
+void BuildTable(struct CodeTable* ct, const unsigned char* passmd5, const long long timestamp)
 {
+	int i, j;
 	// calc overall MD5
 	unsigned char* buf[16 + sizeof(long long)];
 	memcpy(buf, passmd5, 16);
@@ -17,11 +18,11 @@ void BuildTable(CodeTable* ct, const unsigned char* passmd5, const long long tim
 	// build table
 	const int PRIME_FOR_GEN = 47;
 
-	for (int i = 0; i < 256; i++)
+	for (i = 0; i < 256; i++)
 		ct->encode[i] = (unsigned char)i;
-	for (int i = 0; i < 256; i++)
+	for (i = 0; i < 256; i++)
 	{
-		for (int j = 0; j < 16; j++)
+		for (j = 0; j < 16; j++)
 		{
 			int k = md[j] * PRIME_FOR_GEN;
 			md[j] = (unsigned char)k;
@@ -32,24 +33,26 @@ void BuildTable(CodeTable* ct, const unsigned char* passmd5, const long long tim
 		ct->encode[i] = tmp;
 	}
 	// gen decode table
-	for (int i = 0; i < 256; i++)
+	for (i = 0; i < 256; i++)
 		ct->decode[ct->encode[i]] = (unsigned char)i;
 }
 
-void Encrypt(const CodeTable* ct, const void* input, void* output, unsigned int len)
+void Encrypt(const struct CodeTable* ct, const void* input, void* output, unsigned int len)
 {
 	unsigned char* uinput = (unsigned char*)input;
 	unsigned char* uoutput = (unsigned char*)output;
+	unsigned int i;
 
-	for (unsigned int i = 0; i < len; i++)
+	for (i = 0; i < len; i++)
 		uoutput[i] = ct->encode[uinput[i]];
 }
 
-void Decrypt(const CodeTable* ct, const void* input, void* output, unsigned int len)
+void Decrypt(const struct CodeTable* ct, const void* input, void* output, unsigned int len)
 {
 	unsigned char* uinput = (unsigned char*)input;
 	unsigned char* uoutput = (unsigned char*)output;
+	unsigned int i;
 
-	for (unsigned int i = 0; i < len; i++)
+	for (i = 0; i < len; i++)
 		uoutput[i] = ct->decode[uinput[i]];
 }
