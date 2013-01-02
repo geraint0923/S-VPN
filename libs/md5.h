@@ -4,6 +4,10 @@
 #ifndef MD5_H
 #define MD5_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct
 {
 	unsigned int count[2];
@@ -49,5 +53,9 @@ void MD5Encode(unsigned char *output,unsigned int *input,unsigned int len);
 void MD5Decode(unsigned int *output,unsigned char *input,unsigned int len);
 // utility
 void MD5Fast(const void* input, unsigned int len, unsigned char* output);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

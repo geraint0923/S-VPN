@@ -7,28 +7,28 @@
 // password md5 must have a length of 16
 void BuildTable(struct CodeTable* ct, const unsigned char* passmd5, const long long timestamp)
 {
+	const int PRIME_FOR_GEN = 47;
 	int i, j;
+	unsigned char md[17];
 	// calc overall MD5
 	unsigned char* buf[16 + sizeof(long long)];
 	memcpy(buf, passmd5, 16);
 	memcpy(buf + 16, &timestamp, sizeof(long long));
-	unsigned char md[17];
 	MD5Fast(buf, sizeof(buf), md);
 
 	// build table
-	const int PRIME_FOR_GEN = 47;
-
 	for (i = 0; i < 256; i++)
 		ct->encode[i] = (unsigned char)i;
 	for (i = 0; i < 256; i++)
 	{
+		unsigned char tmp;
 		for (j = 0; j < 16; j++)
 		{
 			int k = md[j] * PRIME_FOR_GEN;
 			md[j] = (unsigned char)k;
 			md[j + 1] += k >> 8;
 		}
-		unsigned char tmp = ct->encode[md[15]];
+		tmp = ct->encode[md[15]];
 		ct->encode[md[15]] = ct->encode[i];
 		ct->encode[i] = tmp;
 	}
