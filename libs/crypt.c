@@ -11,7 +11,7 @@ void BuildTable(struct CodeTable* ct, const unsigned char* passmd5, const long l
 	int i, j;
 	unsigned char md[17];
 	// calc overall MD5
-	unsigned char* buf[16 + sizeof(long long)];
+	unsigned char buf[16 + sizeof(long long)];
 	memcpy(buf, passmd5, 16);
 	memcpy(buf + 16, &timestamp, sizeof(long long));
 	MD5Fast(buf, sizeof(buf), md);
