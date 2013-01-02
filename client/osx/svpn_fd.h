@@ -5,7 +5,6 @@
 
 int svpn_tun_create(char *dev_name);
 
-int svpn_sock_create(struct svpn_client *psc, struct char *addr, unsigned short port);
-
+int svpn_sock_create(struct svpn_client *psc, char *addr, unsigned short port);
 
 #endif 

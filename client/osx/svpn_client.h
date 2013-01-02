@@ -2,8 +2,8 @@
 #define __SVPN_CLIENT_H__
 
 #include <pthread.h>
-#include "crypt.h"
 #include <netinet/in.h>
+#include "crypt.h"
 
 #define DEV_NAME_LEN	128
 
@@ -19,7 +19,7 @@ struct svpn_client {
 	struct CodeTable table;
 };
 
-struct svpn_client *svpn_init(char *addr, short port, 
+struct svpn_client *svpn_init(char *addr, unsigned short port, 
 		unsigned char *pwd_md5_16, long long timestamp);
 
 /* start the socket recv thread with UDP 
@@ -36,7 +36,10 @@ int svpn_stop_recv_thread(struct svpn_client *psc);
 
 int svpn_stop_send_thread(struct svpn_client *psc);
 
-int svpn_release(struct svpn_client *psc);
+int svpn_wait_recv_thread(struct svpn_client *psc);
 
+int svpn_wait_send_thread(struct svpn_client *psc);
+
+int svpn_release(struct svpn_client *psc);
 
 #endif

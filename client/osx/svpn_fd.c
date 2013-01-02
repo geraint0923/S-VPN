@@ -5,8 +5,24 @@
 #include <unistd.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <arpa/inet.h>
+
+#define DEV_NAME_LEN	128
 
 int svpn_tun_create(char *dev_name) {
+	int fd;
+	char dev[] = "/dev/tun0";
+
+	if((fd = open(dev, O_RDWR)) < 0) {
+		perror("tun_create");
+		return fd;
+	}
+	strcpy(dev_name, dev);
+	return fd;
 }
 
 int svpn_sock_create(struct svpn_client *psc,
