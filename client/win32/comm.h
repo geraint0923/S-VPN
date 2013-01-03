@@ -36,6 +36,9 @@ public:
 	unsigned char PasswordMD5[16];
 	CodeTable CodeBook;
 	SOCKET ClientSock;
+
+	sockaddr ServerAddr;
+	int ServerAddrLen;
 };
 
 

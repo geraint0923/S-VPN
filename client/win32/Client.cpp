@@ -50,6 +50,7 @@ int Client::SendCycle()
 			comm->SendEncrypt(buf, len);
 		}
 	}
+	return 0;
 }
 
 int Client::RecvCycle()
@@ -62,6 +63,7 @@ int Client::RecvCycle()
 		// filter
 		tun->WritePackage(buf, len);
 	}
+	return 0;
 }
 
 int Client::Run()
@@ -83,4 +85,5 @@ int Client::Finalize()
 	delete tun;
 	delete comm;
 	CommClient::CleanEnvironment();
+	return 0;
 }
