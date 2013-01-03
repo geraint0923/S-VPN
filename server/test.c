@@ -7,7 +7,9 @@
 #include <string.h>
 #include <errno.h>
 #include "crypt.h"
+#include "svpn_server.h"
 
+/*
 int main() {
 	unsigned char buffer[4096], tmp_buffer[4096], src_ip[4], dst_ip[4];
 	int sock;
@@ -64,5 +66,25 @@ int main() {
 		}
 		printf("sendto : %d bytes\n", len);
 	}
+	return 0;
+}
+*/
+int main() {
+	struct svpn_server *psc = NULL;
+	unsigned char pmd[16];
+	MD5Fast("a", 1, pmd);
+
+	psc = svpn_server_init(33333, 10);
+
+	svpn_server_add_client(psc, 3, "59.66.133.36", pmd, 0);
+
+	svpn_server_start_recv_thread(psc);
+	svpn_server_start_send_thread(psc);
+
+
+	svpn_server_wait_recv_thread(psc);
+	svpn_server_wait_send_thread(psc);
+
+
 	return 0;
 }
