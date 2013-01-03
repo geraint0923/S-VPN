@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include "svpn_client.h"
+#include <signal.h>
 
 #define BUFFER_LEN	4096
 
@@ -51,6 +52,7 @@ int main() {
 	printf("start to wait\n");
 
 
+	printf("OKKO?\n");
 	svpn_wait_recv_thread(psc);
 	svpn_wait_send_thread(psc);
 	return 0;

@@ -6,6 +6,8 @@
 #include <sys/socket.h>
 #include <pthread.h>
 #include <netinet/in.h>
+#include <signal.h>
+#include <errno.h>
 
 #include "svpn_client.h"
 #include "crypt.h"
@@ -13,9 +15,13 @@
 
 #define BUFFER_LEN	4096
 
+static void svpn_sig_handler(int sig) {
+	char buffer[] = "Signal?\n";
+	write(1, buffer, strlen(buffer));
+}
 
 static void *svpn_recv_thread(void *pvoid) {
-	printf("ok************\n");
+	//printf("ok************\n");
 
 	struct svpn_client *psc = (struct svpn_client*)pvoid;
 
@@ -26,12 +32,20 @@ static void *svpn_recv_thread(void *pvoid) {
 
 //	pthread_detach(pthread_self());
 
-	printf("recv_loop\n");
+	//printf("recv_loop\n");
 
 	while(psc->recv_thread_on) {
 		int len = recvfrom(psc->sock_fd, tmp_buffer, BUFFER_LEN, 0, 
 				(struct sockaddr*)&addr, &alen);
 		printf("recv : %d\n", len);
+		if(len < 0) {
+			if(errno == EINTR) {
+				//printf("EINTR ! exit.\n");
+				return NULL;
+			}
+			//printf("nothing ?\n");
+			continue;
+		}
 
 		Decrypt(&(psc->table), tmp_buffer, buffer, len);
 
@@ -49,12 +63,20 @@ static void *svpn_send_thread(void *pvoid) {
 	unsigned char buffer[BUFFER_LEN], tmp_buffer[BUFFER_LEN];
 
 //	pthread_detach(pthread_self());
-	printf("send_loop\n");
+	//printf("send_loop\n");
 
 	while(psc->send_thread_on) {
 		int len = read(psc->tun_fd, tmp_buffer, BUFFER_LEN);
 
 		printf("send : %d\n", len);
+		if(len < 0) {
+			if(errno == EINTR) {
+				//printf("EINTR in send ! exit.\n");
+				return NULL;
+			}
+			//printf("nothing in send\n");
+			continue;
+		}
 
 		Encrypt(&(psc->table), tmp_buffer, buffer, len);
 
@@ -69,7 +91,10 @@ struct svpn_client *svpn_init(char *addr, unsigned short port,
 		unsigned char *md5, long long timestamp) {
 
 	struct svpn_client *psc = (struct svpn_client*) malloc(sizeof(struct svpn_client));
+	struct sigaction sact;
+	memset(&sact, 0, sizeof(struct sigaction));
 	memset(psc, 0, sizeof(struct svpn_client));
+
 	BuildTable(&(psc->table), md5, timestamp);
 
 
@@ -90,6 +115,12 @@ struct svpn_client *svpn_init(char *addr, unsigned short port,
 		goto out;
 	}
 
+
+	//signal(SIGUSR1, svpn_sig_handler);
+	sact.sa_handler = svpn_sig_handler;
+	sact.sa_flags &= ~SA_RESTART;
+	sigaction(SIGUSR1, &sact, &(psc->old_act));
+
 out:
 	return psc;
 }
@@ -109,6 +140,8 @@ int svpn_release(struct svpn_client *psc) {
 	close(psc->tun_fd);
 	close(psc->sock_fd);
 
+	sigaction(SIGUSR1, &(psc->old_act), NULL);
+
 	free(psc);
 	
 	return 0;
@@ -123,7 +156,7 @@ int svpn_start_recv_thread(struct svpn_client *psc) {
 	psc->recv_thread_on = 1;
 	//printf("he\nsdasdasdas*******\n");
 	pthread_create(&(psc->recv_tid), NULL, &svpn_recv_thread, (void*)psc);
-	printf("he man\n");
+	//printf("he man\n");
 	return 0;
 }
 
@@ -131,7 +164,7 @@ int svpn_start_send_thread(struct svpn_client *psc) {
 	if(!psc) {
 		return -1;
 	}
-	printf("start send\n");
+	//printf("start send\n");
 	psc->send_thread_on = 1;
 	pthread_create(&(psc->send_tid), NULL, &svpn_send_thread, (void*)psc);
 	return 0;
@@ -143,6 +176,7 @@ int svpn_stop_recv_thread(struct svpn_client *psc) {
 	}
 	psc->recv_thread_on = 0;
 	// to disturb the thread?
+	pthread_kill(psc->recv_tid, SIGUSR1);
 	return 0;
 }
 
@@ -152,6 +186,7 @@ int svpn_stop_send_thread(struct svpn_client *psc) {
 	}
 	psc->send_thread_on = 0;
 	// to disturb the thread?
+	pthread_kill(psc->send_tid, SIGUSR1);
 	return 0;
 }
 

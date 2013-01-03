@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include "crypt.h"
 
 #define DEV_NAME_LEN	128
@@ -17,6 +18,7 @@ struct svpn_client {
 	int recv_thread_on;
 	int send_thread_on;
 	struct CodeTable table;
+	struct sigaction old_act;
 };
 
 struct svpn_client *svpn_init(char *addr, unsigned short port, 
