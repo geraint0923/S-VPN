@@ -20,6 +20,7 @@ struct svpn_server {
 	int tun_fd;
 	pthread_t recv_tid;
 	pthread_t send_tid;
+	pthread_t handle_tid;
 	int recv_thread_on;
 	int send_thread_on;
 	struct svpn_client_node **node_list;
@@ -42,6 +43,8 @@ int svpn_server_start_recv_thread(struct svpn_server *psc);
  */
 int svpn_server_start_send_thread(struct svpn_server *psc);
 
+int svpn_server_start_handle_thread(struct svpn_server *psc);
+
 int svpn_server_stop_recv_thread(struct svpn_server *psc);
 
 int svpn__server_stop_send_thread(struct svpn_server *psc);
@@ -49,6 +52,8 @@ int svpn__server_stop_send_thread(struct svpn_server *psc);
 int svpn_server_wait_recv_thread(struct svpn_server *psc);
 
 int svpn_server_wait_send_thread(struct svpn_server *psc);
+
+int svpn_server_wait_handle_thread(struct svpn_server *psc);
 
 int svpn_server_release(struct svpn_server *psc);
 

@@ -2,8 +2,8 @@
 #define __SVPN_NET_H__
 
 struct svpn_net_ipv4_header {
-	unsigned char ihl:4;
-	unsigned char version:4;
+//	unsigned char ihl:4;
+	unsigned char version;
 	unsigned char tos;
 	unsigned short tot_len;
 	unsigned short id;

@@ -77,13 +77,19 @@ int main() {
 	psc = svpn_server_init(33333, 10);
 
 	svpn_server_add_client(psc, 3, "59.66.133.36", pmd, 0);
+	svpn_server_add_client(psc, 6, "59.66.133.42", pmd, 0);
 
-	svpn_server_start_recv_thread(psc);
-	svpn_server_start_send_thread(psc);
+	system("ifconfig tun2 up");
+	system("ifconfig tun2 192.168.3.1/24");
 
+//	svpn_server_start_recv_thread(psc);
+//	svpn_server_start_send_thread(psc);
+	svpn_server_start_handle_thread(psc);
 
-	svpn_server_wait_recv_thread(psc);
-	svpn_server_wait_send_thread(psc);
+	svpn_server_wait_handle_thread(psc);
+
+//	svpn_server_wait_recv_thread(psc);
+//	svpn_server_wait_send_thread(psc);
 
 
 	return 0;
