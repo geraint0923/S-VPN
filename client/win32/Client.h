@@ -23,6 +23,10 @@ public:
 	HANDLE RecvThread;
 	HANDLE SendThread;
 
+	char debugbuf[10000];
+	int debuglen;
+	HANDLE ev1, ev2;
+
 	int SendCycle();
 	int RecvCycle();
 

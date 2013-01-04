@@ -57,14 +57,14 @@ TunDriver* TunDriver::OpenDriver(int ID)
 {
 	const char* guid = "{A338319D-9D15-4178-A32B-D012DF84FF1E}";
 	// open tun device file
-	TCHAR fileName[256];
-	_stprintf(fileName, _T("%s%s%s"), USERMODEDEVICEDIR, guid, TAPSUFFIX);
-	HANDLE fd = CreateFile(fileName,
+	char fileName[256];
+	sprintf(fileName, "%s%s%s", USERMODEDEVICEDIR, guid, TAPSUFFIX);
+	HANDLE fd = CreateFileA(fileName,
 		GENERIC_READ | GENERIC_WRITE,
 		0,
 		0,
 		OPEN_EXISTING,
-		FILE_ATTRIBUTE_SYSTEM,// | FILE_FLAG_OVERLAPPED,
+		FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED,
 		0);
 	if (fd == INVALID_HANDLE_VALUE)
 	{
@@ -77,9 +77,9 @@ TunDriver* TunDriver::OpenDriver(int ID)
 	ULONG versionInfo[3];
 	ZeroMemory(versionInfo, sizeof(versionInfo));
     DeviceIoControl(fd, TAP_IOCTL_GET_VERSION, &versionInfo, sizeof(versionInfo), &versionInfo, sizeof(versionInfo), &len, NULL);
-	if (versionInfo[0] != 9 || versionInfo[1] != 1)
+	if (versionInfo[0] != 9 || versionInfo[1] != 9)
 	{
-		printf("TAP-Win32 9.1 required. Current is %d.%d %s.\n", (int)versionInfo[0], (int)versionInfo[1], (versionInfo[2] ? "(DEBUG)" : ""));
+		printf("TAP-Win32 9.9 required. Current is %d.%d %s.\n", (int)versionInfo[0], (int)versionInfo[1], (versionInfo[2] ? "(DEBUG)" : ""));
 		CloseHandle(fd);
 		return NULL;
 	}
@@ -93,9 +93,14 @@ TunDriver* TunDriver::OpenDriver(int ID)
 	// set addresses
 	{
 		DWORD ep[3];
-		ep[0] = inet_addr("10.3.0.1");
-		ep[1] = inet_addr("10.3.0.0");
+		ep[0] = inet_addr("192.168.3.6");
+		ep[1] = inet_addr("192.168.3.0");
 		ep[2] = inet_addr("255.255.255.0");
+
+	//		ep[0] = inet_addr("10.3.0.1");
+	//ep[1] = inet_addr("10.3.0.0");
+	//ep[2] = inet_addr("255.255.255.0");
+
 		BOOL statusd = DeviceIoControl(fd, TAP_IOCTL_CONFIG_TUN, ep, sizeof(ep), ep, sizeof(ep), &len, NULL);
 		if (statusd == FALSE)
 		{
@@ -127,16 +132,65 @@ TunDriver::TunDriver()
 {
 }
 
-int TunDriver::ReadPackage(void* buf, unsigned long& size)
+//int TunDriver::ReadPackage(void* buf, unsigned long* psize)
+//{
+//	BOOL ret = ReadFile(fd, buf, PACKAGE_BUFFER_SIZE, psize, NULL);
+//	return  (ret == FALSE) ? -1 : 0;
+//}
+
+HANDLE TunDriver::InitRead()
 {
-	BOOL ret = ReadFile(fd, buf, PACKAGE_BUFFER_SIZE, &size, NULL);
-	return  (ret == FALSE) ? -1 : 0;
+	readState = 0; // no data
+	readEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+	ZeroMemory(&overlapRead, sizeof(overlapRead));
+	overlapRead.hEvent = readEvent;
+	return readEvent;
 }
 
-int TunDriver::WritePackage(const void* buf, unsigned long size)
+int TunDriver::BeginRead()
+{
+	if (ReadFile(fd, innerBuf, 10000, &innerLength, &overlapRead))
+	{
+		readState = 1;
+		SetEvent(readEvent);
+		return 0;
+	}
+	else if (GetLastError() == ERROR_IO_PENDING)
+	{
+		readState = 0;
+		return 0;
+	}
+	else
+		return -1;
+}
+
+void TunDriver::EndRead(void* buf, unsigned long& size)
+{
+	if (readState == 1)
+	{
+		memcpy(buf, innerBuf, innerLength);
+		size = innerLength;
+	}
+	else
+	{
+		if (GetOverlappedResult(fd, &overlapRead, &innerLength, FALSE))
+		{
+			memcpy(buf, innerBuf, innerLength);
+			size = innerLength;
+		}
+		else
+			::perror("Something just not right.\n");
+	}
+	readState = 0;
+}
+
+int TunDriver::Write(const void* buf, unsigned long size)
 {
 	unsigned long written;
-	BOOL ret = WriteFile(fd, buf, size, &written, NULL);
+	OVERLAPPED olp;
+	ZeroMemory(&olp, sizeof(olp));
+	BOOL ret = WriteFile(fd, buf, size, &written, &olp);
+	printf("Err %d %d\n", ret, GetLastError());
 	if (ret == FALSE || written != size)
 		return -1;
 	else

@@ -42,8 +42,8 @@ int CommClient::Connect(const ServerInfo& sinfo, const UserInfo& uinfo)
 	freeaddrinfo(addrInfo);
 
 	// create socket
-	ClientSock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-	//WSASocket(AF_INET, SOCK_DGRAM, 0, NULL, 0, 0); // Overlapped set here
+	//ClientSock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+	ClientSock = WSASocket(AF_INET, SOCK_DGRAM, IPPROTO_IP, NULL, 0, WSA_FLAG_OVERLAPPED); // Overlapped set here
 
 	// bind local address
 	sockaddr_in localAddr;
@@ -52,6 +52,8 @@ int CommClient::Connect(const ServerInfo& sinfo, const UserInfo& uinfo)
 	localAddr.sin_port = htons(0);
 	bind(ClientSock, (sockaddr*)&localAddr, sizeof(sockaddr_in));
 
+	// build codebook
+	BuildTable(&CodeBook, uinfo.MD5, 0LL);
 	return 0;
 }
 
@@ -64,21 +66,94 @@ int CommClient::SendEncrypt(const void* buf, unsigned long size)
 {
 	char enbuf[PACKAGE_BUFFER_SIZE];
 	Encrypt(&CodeBook, buf, enbuf, size);
-	return sendto(ClientSock, enbuf, size, 0, &ServerAddr, ServerAddrLen);
-}
-
-int CommClient::RecvDecrypt(void* buf, unsigned long& size)
-{
-	char debuf[PACKAGE_BUFFER_SIZE];
-	int ret = recvfrom(ClientSock, debuf, PACKAGE_BUFFER_SIZE, 0, &ServerAddr, &ServerAddrLen);
-//		printf("Error : %d \n", WSAGetLastError());
-//	gethostbyname("")->;
-	if (ret < 0)
-		return ret;
-	Decrypt(&CodeBook, debuf, buf, ret);
-	size = ret;
+	//WSABUF wb;
+	//wb.buf = (char*)enbuf;
+	//wb.len = size;
+	//DWORD tmp;
+	//int ret = WSASendTo(ClientSock, &wb, 1, &size, 0, &ServerAddr, ServerAddrLen, &overlapRead, NULL);
+	int ret =  sendto(ClientSock, enbuf, size, 0, &ServerAddr, ServerAddrLen);
+	//printf("%d %d\n", ret, WSAGetLastError());
 	return 0;
 }
+
+HANDLE CommClient::InitRecv()
+{
+	readState = 0;
+	readEvent =  WSACreateEvent();//CreateEvent(NULL, FALSE, FALSE, NULL); //
+	ZeroMemory(&overlapRead, sizeof(overlapRead));
+	overlapRead.hEvent = readEvent;
+	return readEvent;
+}
+
+int CommClient::BeginRecvDecrypt()
+{
+	WSABUF wb;
+	wb.buf = innerBuf;
+	wb.len = sizeof(innerBuf);
+	innerLength = 10000;
+	ServerAddrLen = sizeof(sockaddr_in);
+	DWORD flag = 0;
+	int ret = WSARecvFrom(ClientSock, &wb, 1, &innerLength, &flag, &ServerAddr, &ServerAddrLen, &overlapRead, NULL);
+	if (ret > 0)
+	{		
+		readState = 1;
+		SetEvent(readEvent);
+		return 0;
+	}
+	else if (WSAGetLastError() == WSA_IO_PENDING)
+	{
+		readState = 0;
+		return 0;
+	}
+	else
+	{
+		printf("%d %d\n", ret, WSAGetLastError());
+		return -1;
+	}
+}
+
+int CommClient::EndRecvDecrypt(void* buf, unsigned long& size)
+{
+	if (readState == 1)
+	{
+		Decrypt(&CodeBook, innerBuf, buf, innerLength);
+		memcpy(buf, innerBuf, innerLength);
+		size = innerLength;
+	}
+	else
+	{
+		DWORD flag = 0;
+		if (WSAGetOverlappedResult(ClientSock, &overlapRead, &innerLength, FALSE, &flag))
+		{
+			Decrypt(&CodeBook, innerBuf, buf, innerLength);
+		//	memcpy(buf, innerBuf, innerLength);
+			size = innerLength;
+		}
+		else
+		{
+			printf("Err %d", WSAGetLastError());
+			return -1;
+			//::perror("Someoitoaisdnfas\n");
+		}
+	}
+	readState = 0;
+	return 0;
+}
+
+//int CommClient::RecvDecrypt(void* buf, unsigned long& size)
+//{
+//	char debuf[PACKAGE_BUFFER_SIZE];
+//	sockaddr saddr = ServerAddr;
+//	int saddrl = ServerAddrLen;
+//	int ret = recvfrom(ClientSock, debuf, PACKAGE_BUFFER_SIZE, 0, &saddr, &saddrl);
+////		printf("Error : %d \n", WSAGetLastError());
+////	gethostbyname("")->;
+//	if (ret < 0)
+//		return ret;
+//	Decrypt(&CodeBook, debuf, buf, ret);
+//	size = ret;
+//	return 0;
+//}
 
 int CommClient::InitEnvironment()
 {
