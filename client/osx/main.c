@@ -45,16 +45,18 @@ int main() {
 
 	printf("start to start\n");
 
-	svpn_start_recv_thread(psc);
+//	svpn_start_recv_thread(psc);
 	printf("threading.............\n");
-	svpn_start_send_thread(psc);
+//	svpn_start_send_thread(psc);
+	svpn_start_handle_thread(psc);
 
 	printf("start to wait\n");
 
 
 	printf("OKKO?\n");
-	svpn_wait_recv_thread(psc);
-	svpn_wait_send_thread(psc);
+	svpn_wait_handle_thread(psc);
+//	svpn_wait_recv_thread(psc);
+//	svpn_wait_send_thread(psc);
 	return 0;
 }
 

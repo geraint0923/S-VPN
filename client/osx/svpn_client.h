@@ -15,6 +15,7 @@ struct svpn_client {
 	int tun_fd;
 	pthread_t recv_tid;
 	pthread_t send_tid;
+	pthread_t handle_tid;
 	int recv_thread_on;
 	int send_thread_on;
 	struct CodeTable table;
@@ -34,6 +35,8 @@ int svpn_start_recv_thread(struct svpn_client *psc);
  */
 int svpn_start_send_thread(struct svpn_client *psc);
 
+int svpn_start_handle_thread(struct svpn_client *psc);
+
 int svpn_stop_recv_thread(struct svpn_client *psc);
 
 int svpn_stop_send_thread(struct svpn_client *psc);
@@ -41,6 +44,8 @@ int svpn_stop_send_thread(struct svpn_client *psc);
 int svpn_wait_recv_thread(struct svpn_client *psc);
 
 int svpn_wait_send_thread(struct svpn_client *psc);
+
+int svpn_wait_handle_thread(struct svpn_client *psc);
 
 int svpn_release(struct svpn_client *psc);
 
