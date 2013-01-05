@@ -34,6 +34,7 @@ static void *svpn_handle_thread(void *pvoid) {
 	int maxfd = (psc->sock_fd > psc->tun_fd) ? psc->sock_fd : psc->tun_fd;
 	int ret, len;
 	++maxfd;
+	int recvc = 0, sendc = 0;
 
 //	tv.tv_sec = 0;
 //	tv.tv_usec = 0;
@@ -51,7 +52,9 @@ static void *svpn_handle_thread(void *pvoid) {
 		if(FD_ISSET(psc->tun_fd, &fd_list)) {
 			len = read(psc->tun_fd, tmp_buffer, BUFFER_LEN);
 
-			printf("send : %d\n", len);
+			++sendc;
+
+			printf("send : %d total:%d\n", len, sendc);
 			if(len < 0) {
 			//printf("nothing in send\n");
 				continue;
@@ -66,7 +69,8 @@ static void *svpn_handle_thread(void *pvoid) {
 		if(FD_ISSET(psc->sock_fd, &fd_list)) {
 			len = recvfrom(psc->sock_fd, tmp_buffer, BUFFER_LEN, 0,
 					(struct sockaddr*)&addr, &alen);
-			printf("recv : %d\n", len);
+			++recvc;
+			printf("recv : %d total:%d\n", len, recvc);
 			if(len < 0) {
 				continue;
 			}

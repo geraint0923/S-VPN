@@ -27,6 +27,12 @@ int svpn_tun_create(char *dev_name) {
 
 int svpn_sock_create(struct svpn_client *psc,
 		char *addr, unsigned short port) {
+	struct sockaddr_in haddr;
+	memset(&haddr, 0, sizeof(addr));
+	haddr.sin_family = AF_INET;
+	haddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	haddr.sin_port = htons(33333);
+
 	psc->server_addr.sin_family = AF_INET;
 	psc->server_addr.sin_addr.s_addr = inet_addr(addr);
 	psc->server_addr.sin_port = htons(port);
@@ -34,6 +40,10 @@ int svpn_sock_create(struct svpn_client *psc,
 	if(psc->sock_fd < 0) {
 		perror("socket");
 		return -1;
+	}
+	if(bind(psc->sock_fd, (struct sockaddr*)&haddr, sizeof(haddr)) < 0) {
+		perror("bind");
+		return -2;
 	}
 	return 0;
 }

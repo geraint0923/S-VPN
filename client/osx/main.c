@@ -35,6 +35,7 @@ int main() {
 	MD5Fast("a", 1, md5pd);
 
 	psc = svpn_init("36.54.3.49", 33333, md5pd, 0);
+//	psc = svpn_init("108.171.242.197", 33333, md5pd, 0);
 	if(!psc) {
 		printf("null pointer!\n");
 		return -1;
@@ -42,6 +43,7 @@ int main() {
 //	printf("psc=0x%08x\n", psc);
 	system("ifconfig tun0 up");
 	system("ifconfig tun0 192.168.3.3 192.168.3.1");
+	system("ifconfig tun0 mtu 1440");
 
 	printf("start to start\n");
 
