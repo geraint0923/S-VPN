@@ -190,7 +190,7 @@ int TunDriver::Write(const void* buf, unsigned long size)
 	OVERLAPPED olp;
 	ZeroMemory(&olp, sizeof(olp));
 	BOOL ret = WriteFile(fd, buf, size, &written, &olp);
-	printf("Err %d %d\n", ret, GetLastError());
+//	printf("Err %d %d\n", ret, GetLastError());
 	if (ret == FALSE || written != size)
 		return -1;
 	else

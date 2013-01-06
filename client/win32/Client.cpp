@@ -48,10 +48,12 @@ int Client::SendCycle()
 	
 	HANDLE mwait[] = {
 		comm->InitRecv(),
+//		comm->InitRecv2(),
 		tun->InitRead()
 	};
 	tun->BeginRead();
 	comm->BeginRecvDecrypt();
+//	comm->BeginRecvDecrypt2();
 
 	while (Running)
 	{
@@ -61,25 +63,30 @@ int Client::SendCycle()
 		{
 			tun->EndRead(tunbuf, tunlen);
 			
-			printf("%d ae\n", tunbuf[0] >> 4);
+			//printf("Tun Received IPv%d\n", tunbuf[0] >> 4);
 			if (tunbuf[0] >> 4 == 4)
 			{
+						printf("Tun Received IPv%d\n", tunbuf[0] >> 4);
 				comm->SendEncrypt(tunbuf, tunlen);
-				printf("Send a package\n");
 			}
 			tun->BeginRead();
-	////				unsigned long len;
-	//	comm->RecvDecrypt(buf, len);
-	//	// filter
-	//	tun->WritePackage(buf, len);
 		}
 		else if (ret == WAIT_OBJECT_0)
 		{
+			printf("Comm Recv1\n");
 			comm->EndRecvDecrypt(buf, netlen);
 			// filter
 			tun->Write(buf, netlen);
 			comm->BeginRecvDecrypt();
 		}
+		//else if (ret == WAIT_OBJECT_0 + 1)
+		//{
+		//	printf("Comm Recv2\n");
+		//	comm->EndRecvDecrypt2(buf, netlen);
+		//	// filter
+		//	tun->Write(buf, netlen);
+		//	comm->BeginRecvDecrypt2();
+		//}
 	}
 	return 0;
 }
