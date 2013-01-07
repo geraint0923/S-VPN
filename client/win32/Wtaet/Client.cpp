@@ -2,6 +2,7 @@
 #include "Client.h"
 #include "tun.h"
 #include "comm.h"
+#include "minilzo.h"
 
 int Client::Initialize(Config conf)
 {
@@ -64,6 +65,7 @@ int Client::SendCycle()
 			tun->EndRead(tunbuf, tunlen);
 			
 			//printf("Tun Received IPv%d\n", tunbuf[0] >> 4);
+
 			if (tunbuf[0] >> 4 == 4)
 			{
 						printf("Tun Received IPv%d\n", tunbuf[0] >> 4);
@@ -75,6 +77,14 @@ int Client::SendCycle()
 		{
 			printf("Comm Recv1\n");
 			comm->EndRecvDecrypt(buf, netlen);
+
+			unsigned char buf2[10000];
+			unsigned long lenout;
+			extern lzo_align_t __LZO_MMODEL wrkmem[];
+
+			lzo1x_1_compress((unsigned char*)buf, netlen, buf2, &lenout, wrkmem);
+			printf("zip: %d -> %d\n", netlen, lenout);
+
 			// filter
 			tun->Write(buf, netlen);
 			comm->BeginRecvDecrypt();

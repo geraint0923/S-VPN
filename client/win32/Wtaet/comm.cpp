@@ -3,6 +3,7 @@
 #include <WinSock2.h>
 #include <Ws2tcpip.h>
 
+#pragma comment(lib, "ws2_32.lib")
 //33333
 // a 0
 // www.huxx.me

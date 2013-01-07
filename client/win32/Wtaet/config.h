@@ -7,6 +7,12 @@
 #define PACKAGE_BUFFER_SIZE 10000
 #endif
 
+#ifdef UNICODE
+#define TSTRING std::wstring
+#else
+#define TSTRING std::string
+#endif
+
 class ServerInfo
 {
 public:

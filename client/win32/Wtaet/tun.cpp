@@ -2,11 +2,11 @@
 #include <tchar.h>
 #include <WinSock2.h>
 #include <WinIoCtl.h>
-#include <vector>
+#include <WinReg.h>
+
+#include <stdio.h>
 
 #include "tun.h"
-
-#pragma comment(lib, "ws2_32.lib")
 
 //=============
 // TAP IOCTLs
@@ -37,6 +37,7 @@
 
 #define ADAPTER_KEY "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}"
 #define NETWORK_CONNECTIONS_KEY "SYSTEM\\CurrentControlSet\\Control\\Network\\{4D36E972-E325-11CE-BFC1-08002BE10318}"
+#define NETWORK_CONNECTION_KEY_SURFIX "\\Connection"
 
 //======================
 // Filesystem prefixes
@@ -53,8 +54,138 @@
 
 #define TAP_COMPONENT_ID TAP_ID
 
+#define COMPONENT_ID "ComponentId"
+#define TARGET_COMPONENT_ID "tap0901"
+#define NET_CFG_INSTANCE_ID "NetCfgInstanceId"
+#define CONNECTION_NAME "Name"
+
+#define MAX_KEY_LENGTH 255
+#define MAX_VALUE_NAME 255
+
+#define MAX_TUN_ADAPTERS 7
+
+struct TunAdapterInfo
+{
+	TCHAR Guid[MAX_VALUE_NAME];
+	TCHAR FriendlyName[MAX_VALUE_NAME];
+};
+
+struct TunAdaptersInfo
+{
+	int Count;
+	TunAdapterInfo Adapters[MAX_TUN_ADAPTERS];
+};
+
+void QueryTunAdapterInfo(TunAdaptersInfo* info)
+{ 
+	info->Count = 0;
+
+	LSTATUS ret;
+	HKEY hKeyAdapters;
+	if ((ret = RegOpenKeyEx(HKEY_LOCAL_MACHINE, TEXT(ADAPTER_KEY), 0,
+		KEY_READ, &hKeyAdapters)) != ERROR_SUCCESS)
+	{
+		fprintf(stderr, "[Error] Query adapters failed, ret = %d\n", ret);
+		return;
+	}
+
+	HKEY hKeyConnections;
+	if ((ret = RegOpenKeyEx(HKEY_LOCAL_MACHINE, TEXT(NETWORK_CONNECTIONS_KEY), 0,
+		KEY_READ, &hKeyConnections)) != ERROR_SUCCESS)
+	{
+		fprintf(stderr, "[Error] Query adapters failed, ret = %d\n", ret);
+		RegCloseKey(hKeyAdapters);
+		return;
+	}
+
+    TCHAR  achValue[MAX_VALUE_NAME]; 
+    DWORD cchValue = MAX_VALUE_NAME; 
+	DWORD keyCount;
+	if ((ret = RegQueryInfoKey(hKeyAdapters, NULL, NULL, NULL,
+		&keyCount, NULL, NULL, NULL, NULL, NULL, NULL, NULL)) != ERROR_SUCCESS)
+	{
+		fprintf(stderr, "[Error] Query adapters failed, ret = %d\n", ret);
+		RegCloseKey(hKeyConnections);
+		RegCloseKey(hKeyAdapters);
+		return;
+	}
+
+	for (unsigned int i = 0; i < keyCount; i++)
+	{
+		TCHAR keyName[MAX_KEY_LENGTH];
+		if ((ret = RegEnumKey(hKeyAdapters, i, keyName, MAX_KEY_LENGTH)) != ERROR_SUCCESS)
+			continue;
+
+		HKEY subKey;
+		if ((ret = RegOpenKeyEx(hKeyAdapters, keyName, 0, KEY_READ, &subKey)) != ERROR_SUCCESS)
+			continue;
+
+		BYTE compID[MAX_VALUE_NAME];
+		DWORD cbData = MAX_VALUE_NAME;
+		if ((ret = RegQueryValueEx(subKey, TEXT(COMPONENT_ID), NULL, NULL,
+			compID, &cbData)) != ERROR_SUCCESS)
+		{
+			RegCloseKey(subKey);
+			continue;
+		}
+		// match compid with target
+		const TCHAR* compIDName = (const TCHAR*)compID;
+		if (_tcscmp(compIDName, TEXT(TARGET_COMPONENT_ID)) == 0)
+		{
+			// get guid
+			BYTE netCfgID[MAX_VALUE_NAME];
+			cbData = MAX_VALUE_NAME;
+			if ((ret = RegQueryValueEx(subKey, TEXT(NET_CFG_INSTANCE_ID),
+				NULL, NULL, netCfgID, &cbData)) != ERROR_SUCCESS)
+			{
+				RegCloseKey(subKey);
+				continue;
+			}
+			memcpy(&info->Adapters[info->Count].Guid, netCfgID, cbData);
+
+			TCHAR* connKeySurfix = (TCHAR*)netCfgID;
+			// get friendly name
+			HKEY connKey;
+			_tcscat(connKeySurfix, TEXT(NETWORK_CONNECTION_KEY_SURFIX));
+			if ((ret = RegOpenKeyEx(hKeyConnections, connKeySurfix, 0, KEY_READ,
+				&connKey)) != ERROR_SUCCESS)
+			{
+				RegCloseKey(subKey);
+				continue;
+			}
+
+			BYTE connName[MAX_VALUE_NAME];
+			cbData = MAX_VALUE_NAME;
+			if ((ret = RegQueryValueEx(connKey, TEXT(CONNECTION_NAME),
+				NULL, NULL, connName, &cbData)) != ERROR_SUCCESS)
+			{
+				RegCloseKey(connKey);
+				RegCloseKey(subKey);
+				continue;
+			}
+			memcpy(&info->Adapters[info->Count].FriendlyName, connName, cbData);
+
+			RegCloseKey(connKey);
+			// add info count
+			info->Count++;
+		}
+		RegCloseKey(subKey);
+    }
+	RegCloseKey(hKeyConnections);
+	RegCloseKey(hKeyAdapters);
+}
+
+
 TunDriver* TunDriver::OpenDriver(int ID)
 {
+	TunAdaptersInfo tunAdaptsInfo;
+	QueryTunAdapterInfo(&tunAdaptsInfo);
+	for (int i = 0 ; i < tunAdaptsInfo.Count; i++)
+	{
+		printf("%ls %ls\n", tunAdaptsInfo.Adapters[i].Guid,
+			tunAdaptsInfo.Adapters[i].FriendlyName);
+	}
+
 	const char* guid = "{A338319D-9D15-4178-A32B-D012DF84FF1E}";
 	// open tun device file
 	char fileName[256];
