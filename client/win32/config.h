@@ -26,8 +26,10 @@ class Config
 public:
 	ServerInfo sinfo;
 	UserInfo uinfo;
+	unsigned long tunaddr;
 public:
 	void UseDebugConfig();
+	void UseCommandLineConfig(char** argv);
 	//int ReadConfigFile();
 };
 

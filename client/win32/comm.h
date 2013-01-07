@@ -29,16 +29,38 @@ public:
 	int Connect(const ServerInfo& sinfo, const UserInfo& uinfo);
 	int Disconnect();
 	int SendEncrypt(const void* buf, unsigned long size);
-	int RecvDecrypt(void* buf, unsigned long& size);
+
+	HANDLE InitRecv();
+	int BeginRecvDecrypt();
+	int EndRecvDecrypt(void* buf, unsigned long& size);
+
+	HANDLE InitRecv2();
+	int BeginRecvDecrypt2();
+	int EndRecvDecrypt2(void* buf, unsigned long& size);
 public:
 	CommStatus Status;
 	std::string UserName;
 	unsigned char PasswordMD5[16];
 	CodeTable CodeBook;
 	SOCKET ClientSock;
+	SOCKET ClientSock2;
 
 	sockaddr ServerAddr;
+	sockaddr ServerAddr2;
 	int ServerAddrLen;
+
+	WSAOVERLAPPED overlapRead;
+	int readState;
+	HANDLE readEvent;
+	WSAOVERLAPPED overlapRead2;
+	int readState2;
+	HANDLE readEvent2;
+
+	char innerBuf[10000];
+	DWORD innerLength;
+
+	char innerBuf2[10000];
+	DWORD innerLength2;
 };
 
 

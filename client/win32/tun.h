@@ -19,11 +19,22 @@ public:
 	TunDriver();
 	~TunDriver();
 
-	int ReadPackage(void* buf, unsigned long& size);
-	int WritePackage(const void* buf, unsigned long size);
+//	int ReadPackage(void* buf, unsigned long* psize);
+	int Write(const void* buf, unsigned long size);
+
+	HANDLE InitRead();
+	int BeginRead();
+	void EndRead(void* buf, unsigned long& size);
 public:
 	HANDLE fd;
 	ULONG mtu;
+
+	OVERLAPPED overlapRead;
+	int readState;
+	HANDLE readEvent;
+
+	char innerBuf[10000];
+	DWORD innerLength;
 };
 
 #endif
