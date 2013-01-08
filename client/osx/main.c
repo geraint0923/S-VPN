@@ -41,9 +41,9 @@ int main() {
 		return -1;
 	}
 //	printf("psc=0x%08x\n", psc);
-	system("ifconfig tun0 up");
-	system("ifconfig tun0 192.168.3.3 192.168.3.1");
-	system("ifconfig tun0 mtu 1440");
+	system("ifconfig utun0 up");
+	system("ifconfig utun0 192.168.3.3 192.168.3.1");
+	system("ifconfig utun0 mtu 1400");
 
 	printf("start to start\n");
 
