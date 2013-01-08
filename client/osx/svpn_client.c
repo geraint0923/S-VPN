@@ -54,13 +54,15 @@ static void *svpn_handle_thread(void *pvoid) {
 
 			++sendc;
 
+			len -= 4;
 			printf("send : %d total:%d\n", len, sendc);
 			if(len < 0) {
 			//printf("nothing in send\n");
 				continue;
 			}
 
-			Encrypt(&(psc->table), tmp_buffer, buffer, len);
+			Encrypt(&(psc->table), tmp_buffer + 4, buffer, len);
+//			printf("header?0x%08x\n", *(int*)tmp_buffer);
 
 			len = sendto(psc->sock_fd, buffer, len, 0,
 					(struct sockaddr*)&(psc->server_addr), sizeof(psc->server_addr));
@@ -74,8 +76,12 @@ static void *svpn_handle_thread(void *pvoid) {
 			if(len < 0) {
 				continue;
 			}
-			Decrypt(&(psc->table), tmp_buffer, buffer, len);
+			memset(buffer, 0, 4);
+			*(int*)buffer = 0x02000000;
+			Decrypt(&(psc->table), tmp_buffer, buffer + 4, len);
+			len += 4;
 			len = write(psc->tun_fd, buffer, len);
+//			printf("write:%d\n", len);
 		}
 
 	}
