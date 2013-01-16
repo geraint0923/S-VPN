@@ -16,6 +16,8 @@
 
 #define BUFFER_LEN	4096
 
+// socket collection
+
 static void svpn_sig_handler(int sig) {
 	char buffer[] = "Signal?\n";
 	write(1, buffer, strlen(buffer));
@@ -40,186 +42,174 @@ static int svpn_server_match(struct svpn_server *psc, struct sockaddr_in *addr) 
 	return -2;
 }
 
-static void *svpn_server_recv_thread(void *pvoid) {
-	//printf("ok************\n");
+int svpn_socket_recv(int id, unsigned char* buffer,
+	struct sockaddr_storage* src_addr, socklen_t* src_len)
+{
+	fd_t fd;
+	int len, ret;
 
-	struct svpn_server *psc = (struct svpn_server*)pvoid;
+	fd = psc->socket_list[id].socket_fd;
+	len = recvfrom(fd, buffer, BUFFER_LEN, 0,
+				(struct sockaddr*)src_addr, src_len);
 
-	struct sockaddr_in addr;
-	socklen_t alen = sizeof(addr);
+	if (len < 0)
+	{
+		if(errno == EINTR)
+			return 0;
+		return len;
+	}
+	
+	// verify source
+	ret = svpn_checking_user(id, buffer, src_addr, src_len)
+	if (ret < 0)
+		return ret;
 
-	unsigned char buffer[BUFFER_LEN], tmp_buffer[BUFFER_LEN];
-	int idx;
-//	pthread_detach(pthread_self());
-
-	//printf("recv_loop\n");
-
-	while(psc->recv_thread_on) {
-		int len = recvfrom(psc->sock_fd, tmp_buffer, BUFFER_LEN, 0, 
-				(struct sockaddr*)&addr, &alen);
-		//printf("recv : %d\n", len);
-		if(len < 0) {
-			if(errno == EINTR) {
-				//printf("EINTR ! exit.\n");
-				return NULL;
-			}
-			//printf("nothing ?\n");
-			continue;
-		}
-
-		idx = svpn_server_match(psc, &addr);
-		if(idx < 0) {
-			continue;
-		}
-
+	
+	idx = svpn_server_match(psc, &addr);
+	if(idx < 0)
+		continue;
 
 		Decrypt(&(psc->node_list[idx]->table), tmp_buffer, buffer, len);
 
 		len = write(psc->tun_fd, buffer, len);
 	}
-	
-	return NULL;
 }
 
-static void *svpn_server_handle_thread(void *pvoid) {
-	struct svpn_server *psc = (struct svpn_server*)pvoid;
-	struct sockaddr_in addr;
-	socklen_t alen = sizeof(addr);
-
-	struct svpn_net_ipv4_header *pd = NULL;
-	unsigned char buffer[BUFFER_LEN], tmp_buffer[BUFFER_LEN];
-	int ret, idx, len;
-	fd_set fd_list;
-	int maxfd = (psc->sock_fd > psc->tun_fd) ? psc->sock_fd : psc->tun_fd;
-	++maxfd;
-
-	while(1) {
+int svpn_server_main()
+{
+	int ret;
+	psc->running = 1;
+	while(psc->running)
+	{
+		fd_set fd_list;
+		fd_t max_fd;
+		struct sockaddr_storage src_addr;
+		socklen_t src_len;
+		unsigned char recvbuf[BUFFER_LEN];
+		int len;
+		
+		max_fd = -1;
 		FD_ZERO(&fd_list);
-		FD_SET(psc->tun_fd, &fd_list);
-		FD_SET(psc->sock_fd, &fd_list);
-		ret = select(maxfd, &fd_list, NULL, NULL, NULL);
-		if(ret < 0) {
-			if(errno == EINTR) {
-				return NULL;
-			}
-			continue;
+		// sockets
+		for (int i = 0; i < psc->sockets_count; i++)
+		{
+			fd_t fd = psc->socket_list[i].socket_fd;
+			FD_SET(fd, &fd_list);
+			if (fd > max_fd)
+				max_fd = fd;
 		}
-		if(FD_ISSET(psc->sock_fd, &fd_list)) {
-			len = recvfrom(psc->sock_fd, tmp_buffer, BUFFER_LEN, 0, 
-				(struct sockaddr*)&addr, &alen);
-		printf("recv : %d\n", len);
-			if(len < 0) {
-			//printf("nothing ?\n");
+		// tun
+		FD_SET(psc->tun_fd, &fd_list);
+		if (max_fd < psc->tun_fd);
+			max_fd = psc->tun_fd;
+		//
+		ret = select(maxfd, &fd_list, NULL, NULL, NULL);
+		if (ret < 0)
+			continue;
+		//
+		for (int i = 0; i < psc->sockets_count; i++)
+		{
+			fd_t fd = psc->socket_list[i].socket_fd;
+			if (!FD_ISSET(fd, &fd_list))
 				continue;
-			}
-
-			idx = svpn_server_match(psc, &addr);
-			if(idx < 0) {
+			
+			len = svpn_socket_recv(i, buffer, &src_addr, &src_len);
+			if (len < 0)
 				continue;
-			}
+//			len = recvfrom(fd, buffer, BUFFER_LEN, 0, (struct sockaddr*)&src_addr, &src_len);
+//		printf("recv : %d\n", len);
+			ret = svpn_check_source(i, buffer, len, &src_addr, src_len);
+			if (ret <= 0)
+				continue;
+			
+			ret = svpn_forwarding(i, buffer, len);
+			if (ret < 0)
+				continue;
+//			idx = svpn_server_match(psc, &addr);
+//			if(idx < 0) {
+//				continue;
+//			}
 
 
-			Decrypt(&(psc->node_list[idx]->table), tmp_buffer, buffer, len);
-			len = write(psc->tun_fd, buffer, len);
+//			Decrypt(&(psc->node_list[idx]->table), tmp_buffer, buffer, len);
+//			len = write(psc->tun_fd, buffer, len);
 	
 		}
-		if(FD_ISSET(psc->tun_fd, &fd_list)) {
-			len = read(psc->tun_fd, tmp_buffer, BUFFER_LEN);
-
-			printf("send : %d\n", len);
-			if(len < 0) {
-				//printf("nothing in send\n");
+		if (FD_ISSET(psc->tun_fd, &fd_list))
+		{
+			len = read(psc->tun_fd, buffer, BUFFER_LEN);
+			if (len < 0)
 				continue;
-			}
 
+			ret = svpn_forwarding(i, buffer, len);
+			if (ret < 0)
+				continue;
 			// do something to find the node and send to a right place
-			pd = (struct svpn_net_ipv4_header*)tmp_buffer;
+//			pd = (struct svpn_net_ipv4_header*)tmp_buffer;
 			//printf("Version %s\n", inet_ntoa(*((unsigned long*)pd->src_ip)));
 
-			idx = pd->dst_ip[3];
+//			idx = pd->dst_ip[3];
 			//		idx = 3;
 			//printf("ip?? %d.%d.%d.%d %d\n", pd->src_ip[0], pd->src_ip[1],
 			//				pd->src_ip[2], pd->src_ip[3], buffer[19]);
-			if(!psc->node_list[idx]) {
-				continue;
-			}
+//			if(!psc->node_list[idx]) {
+//				continue;
+//			}
 
 			//printf("post send : %d idx:%d\n", len, idx);
 
-			Encrypt(&(psc->node_list[idx]->table), tmp_buffer, buffer, len);
+//			Encrypt(&(psc->node_list[idx]->table), tmp_buffer, buffer, len);
 
-			len = sendto(psc->sock_fd, buffer, len, 0,
-					(struct sockaddr*)&(psc->node_list[idx]->node_addr), sizeof(psc->server_addr));
+//			len = sendto(psc->sock_fd, buffer, len, 0,
+//					(struct sockaddr*)&(psc->node_list[idx]->node_addr), sizeof(psc->server_addr));
 		}
 	}
 	return NULL;
 }
 
-static void *svpn_server_send_thread(void *pvoid) {
-
-	struct svpn_server *psc = (struct svpn_server*)pvoid;
-	//	pthread_detach(pthread_self());
-	struct svpn_net_ipv4_header *pd = NULL;
-	unsigned char buffer[BUFFER_LEN], tmp_buffer[BUFFER_LEN];
-	int idx;
-
-//	pthread_detach(pthread_self());
-	//printf("send_loop\n");
-
-	while(psc->send_thread_on) {
-		int len = read(psc->tun_fd, tmp_buffer, BUFFER_LEN);
-
-		//printf("send : %d\n", len);
-		if(len < 0) {
-			if(errno == EINTR) {
-				//printf("EINTR in send ! exit.\n");
-				return NULL;
-			}
-			//printf("nothing in send\n");
-			continue;
+struct svpn_server *svpn_server_init(const char* config_filename)
+{
+	// read config file
+	mxml_node_t config_file;
+	{
+		FILE* fconfig;
+		if ((fconfig = fopen(config_filename, "r")) < 0)
+		{
+			fprintf(stderr, "config file could not be opened.\n");
+			return NULL;
 		}
-
-		// do something to find the node and send to a right place
-		pd = (struct svpn_net_ipv4_header*)tmp_buffer;
-		//printf("Version %s\n", inet_ntoa(*((unsigned long*)pd->src_ip)));
-
-		idx = pd->dst_ip[3];
-//		idx = 3;
-		//printf("ip?? %d.%d.%d.%d %d\n", pd->src_ip[0], pd->src_ip[1],
-//				pd->src_ip[2], pd->src_ip[3], buffer[19]);
-		if(!psc->node_list[idx]) {
-			continue;
-		}
-		
-		//printf("post send : %d idx:%d\n", len, idx);
-
-		Encrypt(&(psc->node_list[idx]->table), tmp_buffer, buffer, len);
-
-		len = sendto(psc->sock_fd, buffer, len, 0,
-				(struct sockaddr*)&(psc->node_list[idx]->node_addr), sizeof(psc->server_addr));
+		config_file = XMLOPEN(config);
+		fclose(fconfig);
 	}
-
-	return NULL;
-}
-
-struct svpn_server *svpn_server_init(unsigned short port, int c_count) {
-
-	struct svpn_server *psc = (struct svpn_server*) malloc(sizeof(struct svpn_server));
-	struct sigaction sact;
-	int bytes = 0;
-	memset(&sact, 0, sizeof(struct sigaction));
+	
+	// create server
+	struct svpn_server *psc;
+	psc = (struct svpn_server*) malloc(sizeof(struct svpn_server));
 	memset(psc, 0, sizeof(struct svpn_server));
+	
+	// general
+	psc->config_file = config_file;
+	psc->remote_addr = config_parse_address(GETNODE(config_file, ""));
+	psc->subnet_mask = config_parse_address(GETNODE(config_file, ""));
+	
+	psc->tun_fd = create_tun("");
+	
+	// create sockets
+	config_init_sockets(psc, GETNODE(config_file, "network"));
+	
+	// init clients
+	struct svpn_clients* sc = &psc->svpn_clients;
+	sc->client_count = 0;
+	//list_init(&sc->client_list);
+	memset(sc->client_list, 0, sizeof(sc->client_list));
+	memset(sc->client_by_local_addr, 0, sizeof(sc->client_by_local_addr));
+	
+
+//	struct sigaction sact;
+//	int bytes = 0;
+//	memset(&sact, 0, sizeof(struct sigaction));
 
 //	BuildTable(&(psc->table), md5, timestamp);
-
-
-	// init socket
-	if(svpn_sock_create(psc, port) < 0) {
-		free(psc);
-		psc = NULL;
-		goto out;
-	}
-
 
 	// init tunnel
 	psc->tun_fd = svpn_tun_create(psc->dev_name);
@@ -229,33 +219,33 @@ struct svpn_server *svpn_server_init(unsigned short port, int c_count) {
 		psc = NULL;
 		goto out;
 	}
+	
+	// init socket
+	if(svpn_sock_create(psc, port) < 0) {
+		free(psc);
+		return NULL;
+	}
 
-	psc->client_count = c_count;
-	bytes = sizeof(struct svpn_client_node*) * c_count;
-	psc->node_list = (struct svpn_client_node**) malloc(bytes);
-	memset(psc->node_list, 0, bytes);
+
+//	psc->client_count = c_count;
+//	bytes = sizeof(struct svpn_client_node*) * c_count;
+//	psc->node_list = (struct svpn_client_node**) malloc(bytes);
+//	memset(psc->node_list, 0, bytes);
 
 	//signal(SIGUSR1, svpn_sig_handler);
-	sact.sa_handler = svpn_sig_handler;
-	sact.sa_flags &= ~SA_RESTART;
-	sigaction(SIGUSR1, &sact, &(psc->old_act));
+//	sact.sa_handler = svpn_sig_handler;
+//	sact.sa_flags &= ~SA_RESTART;
+//	sigaction(SIGUSR1, &sact, &(psc->old_act));
 
-out:
+//out:
 	return psc;
 }
 
-int svpn_server_release(struct svpn_server *psc) {
+int svpn_server_release(struct svpn_server *psc)
+{
 	int i;
-	if(!psc) {
+	if (!psc)
 		return -1;
-	}
-
-	if(psc->recv_thread_on) {
-		svpn_server_stop_recv_thread(psc);
-	}
-	if(psc->send_thread_on) {
-		svpn_server_stop_send_thread(psc);
-	}
 
 	close(psc->tun_fd);
 	close(psc->sock_fd);
@@ -273,81 +263,6 @@ int svpn_server_release(struct svpn_server *psc) {
 	free(psc);
 	
 	return 0;
-}
-
-int svpn_server_start_recv_thread(struct svpn_server *psc) {
-	if(!psc) {
-		return -1;
-	}
-//	psc->recv_thread_on = 1;
-	//printf("start recv : 0x%08x\n", psc);
-	psc->recv_thread_on = 1;
-	//printf("he\nsdasdasdas*******\n");
-	pthread_create(&(psc->recv_tid), NULL, &svpn_server_recv_thread, (void*)psc);
-	//printf("he man\n");
-	return 0;
-}
-
-int svpn_server_start_send_thread(struct svpn_server *psc) {
-	if(!psc) {
-		return -1;
-	}
-	//printf("start send\n");
-	psc->send_thread_on = 1;
-	pthread_create(&(psc->send_tid), NULL, &svpn_server_send_thread, (void*)psc);
-	return 0;
-}
-
-int svpn_server_start_handle_thread(struct svpn_server *psc) {
-	if(!psc) {
-		return -1;
-	}
-
-	pthread_create(&(psc->handle_tid), NULL, &svpn_server_handle_thread, (void*)psc);
-}
-
-int svpn_server_stop_recv_thread(struct svpn_server *psc) {
-	if(!psc) {
-		return -1;
-	}
-	psc->recv_thread_on = 0;
-	// to disturb the thread?
-	pthread_kill(psc->recv_tid, SIGUSR1);
-	return 0;
-}
-
-int svpn_server_stop_send_thread(struct svpn_server *psc) {
-	if(!psc) {
-		return -1;
-	}
-	psc->send_thread_on = 0;
-	// to disturb the thread?
-	pthread_kill(psc->send_tid, SIGUSR1);
-	return 0;
-}
-
-int svpn_server_wait_recv_thread(struct svpn_server *psc) {
-	void *value;
-	if(!psc) {
-		return -1;
-	}
-	return pthread_join(psc->recv_tid, &value);
-}
-
-int svpn_server_wait_send_thread(struct svpn_server *psc) {
-	void *value;
-	if(!psc) {
-		return -1;
-	}
-	return pthread_join(psc->send_tid, &value);
-}
-
-int svpn_server_wait_handle_thread(struct svpn_server *psc) {
-	void *value;
-	if(!psc) {
-		return -1;
-	}
-	return pthread_join(psc->handle_tid, &value);
 }
 
 int svpn_server_available_index(struct svpn_server *psc) {

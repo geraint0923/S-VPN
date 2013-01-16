@@ -1,0 +1,16 @@
+<config>
+	<network>
+		<ipv4 protocol="UDP" address="0.0.0.0" port="44444" />
+		<!--<ipv6 protocol="UDP" address="::" port="44444" />-->
+	</network>
+	
+	<users>
+		<normal name="test" password="DWOPR">
+			<lastlogin>0</lastlogin>
+			<sendbytes>0</sendbytes>
+		</normal>
+		<vip name="vip_a">
+			<address></address>
+		</vip>
+	</users>
+</config>

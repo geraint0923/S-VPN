@@ -15,32 +15,34 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-#define DEV_NAME_LEN	128
+// #define DEV_NAME_LEN	128
 
-int svpn_tun_create(char *dev_name) {
-	int fd, err;
-	char dev[] = "/dev/net/tun";
+int svpn_tun_create(char *dev_name)
+{
+	fd_t fd;
+	int err;
+//	char dev[] = "/dev/net/tun";
 	struct ifreq ifr;
 
-	if((fd = open(dev, O_RDWR)) < 0) {
+	if((fd = open(dev, O_RDWR)) < 0)
+	{
 		perror("tun_create");
 		return fd;
 	}
 
 	memset(&ifr, 0, sizeof(ifr));
-
 	ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
 
-	if((err = ioctl(fd, TUNSETIFF, (void*)&ifr)) < 0) {
+	if ((err = ioctl(fd, TUNSETIFF, (void*)&ifr)) < 0)
+	{
 		close(fd);
 		return err;
 	}
-
-	strcpy(dev_name, dev);
 	return fd;
 }
 
-int svpn_sock_create(struct svpn_server *psc, unsigned short port) {
+int svpn_socket_create(struct svpn_server *psc, unsigned short port)
+{
 	int n = 1024 * 1024;
 	socklen_t slen = sizeof(n);
 	psc->server_addr.sin_family = AF_INET;

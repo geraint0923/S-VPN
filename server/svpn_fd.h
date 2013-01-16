@@ -3,7 +3,7 @@
 
 #include "svpn_server.h"
 
-int svpn_tun_create(char *dev_name);
+int svpn_tun_create(const char *dev_name);
 
 int svpn_sock_create(struct svpn_server *psc, unsigned short port);
 
