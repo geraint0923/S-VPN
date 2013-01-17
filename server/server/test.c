@@ -12,8 +12,10 @@
 // check source
 // forwarding
 
-int main() {
-	struct svpn_server *psc = NULL;
+struct svpn_server *psc;
+
+int main()
+{
 //	unsigned char pmd[16];
 //	MD5Fast("a", 1, pmd);
 
