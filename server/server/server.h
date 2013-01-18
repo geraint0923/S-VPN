@@ -13,15 +13,13 @@ typedef int fd_t;
 struct svpn_server
 {
 	// tun
-	struct sockaddr_in remote_addr;
+	uint32_t remote_addr;
 	uint32_t subnet_mask;
 	// sockets & tun
 	struct svpn_tun tun;
-	size_t sockets_count;
-	struct svpn_socket* socket_list;
-	// clients
+	struct svpn_sockets sockets;
 	struct svpn_clients clients;
-	// users
+	//
 	mxml_node_t config_file;
 	//
 	int running;

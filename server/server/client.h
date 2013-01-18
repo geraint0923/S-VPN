@@ -39,7 +39,9 @@ int find_client_by_name(const char* username);
 
 // find the client by its name
 // return the client id, negative if error
-int find_client_by_addr(int sock_id, struct sockaddr_storage* addr, socklen_t len);
+int find_client_by_remote_addr(int sock_id, struct sockaddr_storage* addr, socklen_t len);
+
+int find_client_by_local_addr(uint32_t addr);
 
 // set the client status to ready, initialize data
 // containing login and keepalive
