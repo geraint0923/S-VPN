@@ -22,3 +22,11 @@ void Config::UseCommandLineConfig(char** argv)
 
 	tunaddr = inet_addr(argv[1]);
 }
+
+void EncodeString(const TCHAR* str, BYTE* res)
+{
+}
+
+inline void Compress(const void* data, const unsigned int size, BYTE* comped, unsigned int* len)
+{
+}

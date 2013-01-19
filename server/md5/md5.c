@@ -170,3 +170,12 @@ void MD5Fast(const void* input, unsigned int len, unsigned char* output)
 	MD5Update(&md5, (unsigned char*)input, len);
 	MD5Final(&md5, output);
 }
+
+#include <stdio.h>
+
+int parse_md5(unsigned char* md5, const char* str)
+{
+	printf("Not impleented. Parse_MD5\n");
+	return 0;
+}
+

@@ -4,6 +4,7 @@
 
 #include "config.h"
 #include "Client.h"
+#include "account.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -17,8 +18,10 @@
 
 int main(int argc, char** argv)
 {
-	extern int main2(int argc, char *argv[]);
-	main2(0, NULL);
+//	int kk = sizeof(ControlHeader);
+
+//	extern int main2(int argc, char *argv[]);
+//	main2(0, NULL);
 
 
 	PMIB_IPFORWARDTABLE pIpForwardTable;
@@ -167,7 +170,6 @@ int main(int argc, char** argv)
         return 1;
     }
 
-
 	//return 0;
 
 	if (argc == 11)
@@ -185,10 +187,11 @@ int main(int argc, char** argv)
 		printf("Currently username and password is immutable.\n");
 		return 0;
 	}
+
 	Config cfg;
 //	cfg.UseCommandLineConfig(argv);
 	Client cl;
 	cl.Initialize(cfg);
-	cl.Run();
+	cl.EventLoop();
 	cl.Finalize();
 }

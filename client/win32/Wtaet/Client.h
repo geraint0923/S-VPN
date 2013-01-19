@@ -4,35 +4,43 @@
 #include <string>
 #include "tun.h"
 #include "comm.h"
+#include "account.h"
 #include "config.h"
+#include "common.h"
 
-#ifndef PACKAGE_BUFFER_SIZE
-#define PACKAGE_BUFFER_SIZE 10000
-#endif
+#define MY_MAXIMUM_WAIT_OBJECTS 10
 
 class Client
 {
 public:
 	int Initialize(Config conf);
-	int Run();
 	int Finalize();
+
+	// WaitQueue
+	int RegisterEvent(HANDLE hEvent, Waitable* object, WaitHandler handler);
+	int UnregisterEvent(HANDLE hEvent);
+
+	void ClearEventQueue();
+
+	int EventLoop();
 public:
 	TunDriver* tun;
 	CommClient* comm;
+	Account* account;
+//	Console* console;
 
-	HANDLE RecvThread;
-	HANDLE SendThread;
-
-	char debugbuf[10000];
-	int debuglen;
-	HANDLE ev1, ev2;
-
-	int SendCycle();
-	int RecvCycle();
+private:
+	// WaitHandler WaitQueue
+	unsigned int WaitQueueSize;
+	HANDLE WaitQueue[MY_MAXIMUM_WAIT_OBJECTS];
+	struct
+	{
+		Waitable* Object;
+		WaitHandler Handler;
+	}
+	WaitQueueHandler[MY_MAXIMUM_WAIT_OBJECTS];
 
 	bool Running;
 };
-
-
 
 #endif

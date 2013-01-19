@@ -1,147 +1,61 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <unistd.h>
+#include <cstddef>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <pthread.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <errno.h>
+#include <sys/time.h>
+#include <arpa/inet.h>
 
 #include "server.h"
 #include "crypt.h"
-#include "svpn_fd.h"
-#include "svpn_net.h"
+#include "client.h"
+#include "fd.h"
+#include "net.h"
 
-#define BUFFER_LENGTH	4096
-#define BUFFER_LEN	BUFFER_LENGTH
-#define BUFFER_SIZE	BUFFER_LENGTH
+using namespace std;
 
-typedef unsigned char byte;
+long long now;
 
-#define PACKAGE_CONTROL 0x1
-#define PACKAGE_UNENCRYPTED 0x2
-#define PACKAGE_ENCRYPTED 0x0
-#define PACKAGE_COMPRESSED 0x4
-
-#define PACKAGE_CONTROL_USERNAME 1
-#define PACKAGE_CONTROL_TIMESTAMP 2
-#define PACKAGE_CONTROL_KEEPALIVE 3
-#define PACKAGE_CONTROL_LOGIN 4
-
-#define SVPN_MAGIC_NUMBER 0x38f38296
-
-#define SVPN_OK 0
-#define SVPN_USER_NOTFOUND 101
-#define SVPN_USER_INVALID 102
-#define SVPN_WRONG_PASSWORD 103
-
-#define SVPN_PASSED 0
-#define ERROR_INVALID_PACKAGE 203
-
-
-uint64_t ntohq(uint64_t i)
+void svpn_update_time()
 {
-	uint64_t res;
-	uint32_t* dst = (uint32_t*)&i;
-	uint32_t* src = (uint32_t*)&res;
-	dst[0] = ntohl(src[1]);
-	src[1] = ntohl(src[0]);
-	return res;
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	now = ((long long)tv.tv_sec) * 1000000 + tv.tv_usec;
 }
 
-// socket collection
-// remember pack(1): TODO:
-struct control_package
+int client_sendto(int client_id, const unsigned char* buffer, size_t len, int flag)
 {
-	uint8_t type;
-	union
-	{
-		struct control_package_username pkg_username;
-		struct control_package_timestamp pkg_timestamp;
-		struct control_package_keepalive pkg_keepalive;
-		struct control_package_login pkg_login;
-	}
-	content;
-};
-
-struct control_package_login
-{
-	uint8_t status;
-	// login information
-	struct sockaddr_in local_addresss;
-	uint32_t network_mask;
-	struct sockaddr_in remote_address;
-	//
-	uint64_t valid_time;
-	//
-	char _pad[0];
-};
-
-void ntoh_control_package_login(struct control_package_login* c)
-{
-	c->status = ntohl(c->status);
-	c->valid_time = ntohq(c->valid_time);
-	c->network_mask = ntohl(c->network_mask);
-};
-
-struct control_package_keepalive
-{
-	uint32_t magic_number;
-	uint32_t options;
-	//
-	char _pad[0];
-};
-
-void ntoh_control_package_keepalive(struct control_package_keepalive* c)
-{
-	c->magic_number = ntohl(c->magic_number);
-	c->options = ntohl(c->options);
-};
-
-struct control_package_timestamp
-{
-	uint64_t timestamp;
-	//
-	char _pad[0];
-};
-
-void ntoh_control_package_timestamp(struct control_package_timestamp* c)
-{
-	c->timestamp = ntohq(c->timestamp);
+	if (((int)psc->clients.client_count) <= client_id)
+		return -1;
+	struct svpn_client* client = psc->clients.clients_list[client_id];
+	return socket_sendto(client->socket_id, buffer, len, flag,
+			&client->node_addr, client->node_addr_len, client_id);
 }
 
-struct control_package_username
-{
-	char username[0];
-	//
-	char _pad[0];
-};
-
-// minus 1 for mark
-#define PACKAGE_SIZE(m) (offsetof(control_package, m) - 1)
-
-#define PACKAGE_SIZE_CONTROL_USERNAME PACKAGE_SIZE(content.pkg_username._pad)
-#define PACKAGE_SIZE_CONTROL_TIMESTAMP PACKAGE_SIZE(content.pkg_timestamp._pad)
-#define PACKAGE_SIZE_CONTROL_KEEPALIVE PACKAGE_SIZE(content.pkg_keepalive._pad)
-#define PACKAGE_SIZE_CONTROL_LOGIN PACKAGE_SIZE(content.pkg_login._pad)
-
-int control_package_handler(int sock_id, const unsigned char* buffer,
+int handle_control_package(int sock_id, const unsigned char* buffer,
+							int flag,
 							const struct sockaddr_storage* src_addr,
 							socklen_t src_len)
 {
 	int ret;
 	const struct control_package* ctl_pkg = (const struct control_package*)buffer;
 	// check control package
-	if (!(ctl_pkg->mark & PACKAGE_CONTROL))
+	if (!(flag & PACKAGE_CONTROL))
 		return -ERROR_INVALID_PACKAGE;
 	switch (ctl_pkg->type)
 	{
 	case PACKAGE_CONTROL_USERNAME:
 		{
+			int uid;
 			// add to candidate, ret = uid
-			ret = add_client(sock_id, ctl_pkg.content.pkg_username.username,
+			uid = ret = cache_client(sock_id, ctl_pkg->content.pkg_username.username,
 						src_addr, src_len);
 			// send replay
 			struct control_package reply;
@@ -149,15 +63,15 @@ int control_package_handler(int sock_id, const unsigned char* buffer,
 			if (ret < 0)
 			{
 				reply.content.pkg_timestamp.timestamp = 0LL;
-				svpn_socket_sendto(sock_id, &reply.type,
+				socket_sendto(sock_id, (const unsigned char*)&reply,
 					PACKAGE_UNENCRYPTED | PACKAGE_CONTROL,
-					PACKAGE_SIZE_CONTROL_TIMESTAMP, src_addr, src_len);
+					PACKAGE_SIZE_CONTROL_TIMESTAMP, src_addr, src_len, uid);
 				return ret;
 			}
 			else
 			{
 				reply.content.pkg_timestamp.timestamp = now;
-				svpn_client_sendto(ret, &reply.type,
+				client_sendto(ret, (const unsigned char*)&reply,
 					PACKAGE_ENCRYPTED | PACKAGE_CONTROL,
 					PACKAGE_SIZE_CONTROL_TIMESTAMP);
 				return 0;
@@ -169,23 +83,18 @@ int control_package_handler(int sock_id, const unsigned char* buffer,
 			int uid;
 			struct control_package reply;
 			reply.type = PACKAGE_CONTROL_LOGIN;
-			if (ctl_pkg.content.pkg_keepalive.magic_number !=
+			if (ctl_pkg->content.pkg_keepalive.magic_number !=
 				SVPN_MAGIC_NUMBER)
 			{
 				reply.content.pkg_login.status = SVPN_WRONG_PASSWORD;
-				svpn_client_sendto(ret, &reply.type,
+				ret = client_sendto(ret, (const unsigned char*)&reply,
 					PACKAGE_ENCRYPTED | PACKAGE_CONTROL,
 					PACKAGE_SIZE_CONTROL_LOGIN);
-				return 0;
+				return ret;
 			}
 			// TODO: check options. e.g. ipv6
 			// add to candidate, ret = uid
-			ret = find_client(sock_id, src_addr, src_len);
-			if (ret < 0)
-				return 0;
-			uid = ret;
-			
-			ret = activate_client(ret, SVPN_OK);
+			uid = ret = find_client_by_remote_addr(sock_id, src_addr, src_len);
 			if (ret < 0)
 				return 0;
 				
@@ -193,11 +102,15 @@ int control_package_handler(int sock_id, const unsigned char* buffer,
 			reply.content.pkg_login.status = SVPN_OK;
 			reply.content.pkg_login.remote_address = psc->remote_addr;
 			reply.content.pkg_login.network_mask = psc->subnet_mask;
-			reply.content.pkg_login.local_address = svpn_client_getunused_localaddr();
-			reply.content.pkg_login.valid_time = psc->client_valid_time;
-			svpn_client_sendto(uid, &reply.type,
+			reply.content.pkg_login.local_address = get_unused_local_address();
+			reply.content.pkg_login.valid_time = psc->clients.valid_time;
+			client_sendto(uid, (const unsigned char*)&reply,
 				PACKAGE_ENCRYPTED | PACKAGE_CONTROL,
 				PACKAGE_SIZE_CONTROL_TIMESTAMP);
+
+			ret = activate_client(uid, reply.content.pkg_login.local_address);
+			if (ret < 0)
+				printf("Error. But not fixedaste .\n"); // FIXME: error not handled here
 			return 0;
 		}
 		break;
@@ -208,28 +121,32 @@ int control_package_handler(int sock_id, const unsigned char* buffer,
 	return ret;
 }
 
-static int svpn_server_match(struct svpn_server *psc, struct sockaddr_in *addr) {
-	int i;
-	if(!psc) {
-		return -1;
-	}
-	for(i = 2; i < psc->client_count; ++i) {
-		if(psc->node_list[i]) {
-			//printf("ori:%s  ", inet_ntoa(addr->sin_addr));
-			//printf("here:%s\n", inet_ntoa(psc->node_list[i]->node_addr.sin_addr));
-			if(psc->node_list[i]->node_addr.sin_addr.s_addr == addr->sin_addr.s_addr) {
-				psc->node_list[i]->node_addr.sin_port = addr->sin_port;
-				return i;
-			}
-		}
-	}
-
-	return -2;
-}
-
-int svpn_forwarding(int sock_id, const unsigned char* buf, size_t len)
+int svpn_forwarding(int sock_id, const unsigned char* buf, size_t len, int flag)
 {
-	return 0;
+	// FIXME:TODO: check source & destination permission
+	// IP package
+	if (buf[0] >> 4 == 4) // IPv4
+	{
+		struct net_ipv4_header* header = (struct net_ipv4_header*)buf;
+		if (((header->dst_ip & psc->subnet_mask) == (psc->remote_addr & psc->subnet_mask)) &&
+				header->dst_ip != psc->remote_addr) // sub network
+		{
+			int client_id = find_client_by_local_addr(header->dst_ip);
+			if (client_id < 0)
+				return -1;
+			return client_sendto(client_id, buf, len,
+					PACKAGE_ENCRYPTED | PACKAGE_COMPRESSED);
+		}
+		else
+			return tun_send(buf, len, 0);
+	}
+	if (buf[0] >> 4 == 6) // IPv6
+	{
+		printf("IPv6 not supported rightnow");
+		return 0;
+	}
+	printf("unknown package?\n");
+	return -1;
 }
 
 int svpn_server_main()
@@ -243,8 +160,9 @@ int svpn_server_main()
 		fd_t max_fd;
 		struct sockaddr_storage src_addr;
 		socklen_t src_len;
-		unsigned char buf[BUFFER_LEN];
-		int len;
+		unsigned char buf[BUFFER_LENGTH];
+		size_t len;
+		int flag;
 		
 		max_fd = -1;
 		FD_ZERO(&fd_list);
@@ -258,12 +176,13 @@ int svpn_server_main()
 		}
 		// tun
 		FD_SET(psc->tun.tun_fd, &fd_list);
-		if (max_fd < psc->tun.tun_fd);
+		if (max_fd < psc->tun.tun_fd)
 			max_fd = psc->tun.tun_fd;
 		//
-		ret = select(max_fd, &fd_list, NULL, NULL, NULL);
+		ret = select(max_fd +1, &fd_list, NULL, NULL, NULL);
 		if (ret < 0)
 			continue;
+		svpn_update_time();
 		//
 		for (int i = 0; i < psc->sockets.socket_count; i++)
 		{
@@ -271,12 +190,12 @@ int svpn_server_main()
 			if (!FD_ISSET(fd, &fd_list))
 				continue;
 			
-			len = svpn_socket_recv(i, buf, &src_addr, &src_len);
-			if (len <= 0)
+			ret = socket_recvfrom(i, buf, &len, &flag, &src_addr, &src_len);
+			if (ret < 0)
 				continue;
 				
 			if (buf[0] & PACKAGE_CONTROL)
-				ret = handle_control_package();
+				ret = handle_control_package(i, buf, flag, &src_addr, src_len);
 			else
 			{
 				// TODO: check source
@@ -284,19 +203,19 @@ int svpn_server_main()
 				//	if (ret <= 0)
 				//		continue;
 			
-				ret = svpn_forwarding(i, buf, len);
+				ret = svpn_forwarding(i, buf, len, flag);
 			}
 		}
 		if (FD_ISSET(psc->tun.tun_fd, &fd_list))
 		{
-			ret = tun_read(psc->tun.tun_fd, buf, &len);
+			ret = tun_recv(buf, &len, &flag);
 			if (ret < 0 || len <= 0)
 				continue;
 
-			ret = svpn_forwarding(i, buf, len);
+			ret = svpn_forwarding(i, buf, len, flag);
 		}
 	}
-	return NULL;
+	return 0;
 }
 
 // do something to find the node and send to a right place
@@ -318,81 +237,38 @@ int svpn_server_main()
 //			len = sendto(psc->sock_fd, buffer, len, 0,
 //					(struct sockaddr*)&(psc->node_list[idx]->node_addr), sizeof(psc->server_addr));
 
-int svpn_server_init(const char* config_filename)
+int svpn_server_init(const rapidxml::xml_node<>* config)
 {
-	// read config file
-	mxml_node_t config_file;
-	{
-		FILE* fconfig;
-		if ((fconfig = fopen(config_filename, "r")) < 0)
-		{
-			fprintf(stderr, "config file could not be opened.\n");
-			return NULL;
-		}
-		config_file = XMLOPEN(config);
-		fclose(fconfig);
-	}
-	
+	int ret;
 	// create server
 	psc = (struct svpn_server*) malloc(sizeof(struct svpn_server));
 	memset(psc, 0, sizeof(struct svpn_server));
 	
 	// general
-	psc->config_file = config_file;
-	psc->remote_addr = config_parse_address(GETNODE(config_file, ""));
-	psc->subnet_mask = config_parse_address(GETNODE(config_file, ""));
+	psc->config = config;
+	psc->remote_addr = inet_addr(config->first_node("remoteaddr")->value());
+	psc->subnet_mask = inet_addr(config->first_node("networkmask")->value());
+	// tun
+	if (config->first_node("tun") != NULL)
+		psc->tun.tun_fd = svpn_tun_create(config->first_node("tun")->value());
+	else
+		psc->tun.tun_fd = svpn_tun_create(NULL);
 	
-	psc->tun.tun_fd = create_tun(NULL);
-	
-	svpn_sockets_init();
-	svpn_clients_init();
+	if (psc->tun.tun_fd < 0)
+		return -1;
 
-//	struct sigaction sact;
-//	int bytes = 0;
-//	memset(&sact, 0, sizeof(struct sigaction));
+	//
+	if ((ret = svpn_sockets_init()) < 0)
+		return ret;
+	if ((ret = svpn_clients_init()) < 0)
+		return ret;
 
-//	BuildTable(&(psc->table), md5, timestamp);
-
-	// init tunnel
-
-//	struct svpn_clients* sc = &psc->svpn_clients;
-//	sc->client_count = 0;
-//	//list_init(&sc->client_list);
-//	memset(sc->client_list, 0, sizeof(sc->client_list));
-//	memset(sc->client_by_local_addr, 0, sizeof(sc->client_by_local_addr));
-//
-//	psc->tun_fd = svpn_tun_create(psc->dev_name);
-//	if(psc->tun_fd < 0) {
-//		close(psc->sock_fd);
-//		free(psc);
-//		psc = NULL;
-//		goto out;
-//	}
-//
-//	// init socket
-//	if(svpn_sock_create(psc, port) < 0) {
-//		free(psc);
-//		return NULL;
-//	}
-//
-
-//	psc->client_count = c_count;
-//	bytes = sizeof(struct svpn_client_node*) * c_count;
-//	psc->node_list = (struct svpn_client_node**) malloc(bytes);
-//	memset(psc->node_list, 0, bytes);
-
-	//signal(SIGUSR1, svpn_sig_handler);
-//	sact.sa_handler = svpn_sig_handler;
-//	sact.sa_flags &= ~SA_RESTART;
-//	sigaction(SIGUSR1, &sact, &(psc->old_act));
-
-//out:
 	return 0;
 }
 
-int svpn_server_release(struct svpn_server *psc)
+int svpn_server_release()
 {
-	int i;
+//	int i;
 	if (psc == NULL)
 		return -1;
 
@@ -416,23 +292,54 @@ int svpn_server_release(struct svpn_server *psc)
 }
 
 
-int svpn_server_add_client(struct svpn_server *psc, int idx, char *addr,
-		unsigned char *pmd5, long long timestamp) {
-	if(!psc) {
-		return -1;
-	}
+//int svpn_server_add_client(struct svpn_server *psc, int idx, char *addr,
+//		unsigned char *pmd5, long long timestamp) {
+//	if(!psc) {
+//		return -1;
+//	}
+//
+//	if(psc->node_list[idx]) {
+//		return -2;
+//	}
+//
+//	psc->node_list[idx] = (struct svpn_client_node*)malloc(sizeof(struct svpn_client_node));
+//	memset(psc->node_list[idx], 0, sizeof(struct svpn_client_node));
+//
+//	BuildTable(&(psc->node_list[idx]->table), pmd5, timestamp);
+//	psc->node_list[idx]->node_addr.sin_addr.s_addr = inet_addr(addr);
+//	psc->node_list[idx]->node_addr.sin_family = AF_INET;
+//	psc->node_list[idx]->node_addr.sin_port = htons(33333);
+//
+//	return 0;
+//}
 
-	if(psc->node_list[idx]) {
-		return -2;
-	}
+//	struct sigaction sact;
+//	int bytes = 0;
+//	memset(&sact, 0, sizeof(struct sigaction));
 
-	psc->node_list[idx] = (struct svpn_client_node*)malloc(sizeof(struct svpn_client_node));
-	memset(psc->node_list[idx], 0, sizeof(struct svpn_client_node));
+	// init tunnel
 
-	BuildTable(&(psc->node_list[idx]->table), pmd5, timestamp);
-	psc->node_list[idx]->node_addr.sin_addr.s_addr = inet_addr(addr);
-	psc->node_list[idx]->node_addr.sin_family = AF_INET;
-	psc->node_list[idx]->node_addr.sin_port = htons(33333);
+//	struct svpn_clients* sc = &psc->svpn_clients;
+//	sc->client_count = 0;
+//	//list_init(&sc->client_list);
+//	memset(sc->client_list, 0, sizeof(sc->client_list));
+//	memset(sc->client_by_local_addr, 0, sizeof(sc->client_by_local_addr));
+//
+//	// init socket
+//	if(svpn_sock_create(psc, port) < 0) {
+//		free(psc);
+//		return NULL;
+//	}
+//
 
-	return 0;
-}
+//	psc->client_count = c_count;
+//	bytes = sizeof(struct svpn_client_node*) * c_count;
+//	psc->node_list = (struct svpn_client_node**) malloc(bytes);
+//	memset(psc->node_list, 0, bytes);
+
+	//signal(SIGUSR1, svpn_sig_handler);
+//	sact.sa_handler = svpn_sig_handler;
+//	sact.sa_flags &= ~SA_RESTART;
+//	sigaction(SIGUSR1, &sact, &(psc->old_act));
+
+//out:

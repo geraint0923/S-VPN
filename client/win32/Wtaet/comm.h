@@ -10,6 +10,8 @@
 #define PACKAGE_BUFFER_SIZE 10000
 #endif
 
+class Client;
+
 enum CommStatus
 {
 	Init,
@@ -18,7 +20,11 @@ enum CommStatus
 	Error
 };
 
-class CommClient
+#define COMM_READ_STATUS_NONE 0
+#define COMM_READ_STATUS_PENDING 1
+#define COMM_READ_STATUS_DONE 2
+
+class CommClient : public Waitable
 {
 public:
 	static int InitEnvironment();
@@ -26,41 +32,43 @@ public:
 
 	CommClient();
 	~CommClient();
-	int Connect(const ServerInfo& sinfo, const UserInfo& uinfo);
-	int Disconnect();
-	int SendEncrypt(const void* buf, unsigned long size);
 
-	HANDLE InitRecv();
-	int BeginRecvDecrypt();
-	int EndRecvDecrypt(void* buf, unsigned long& size);
+	int Connect();//const TCHAR* ServerName, const TCHAR* ServerPort);
+	socket_t Connect(const sockaddr* serverAddr, int flag);
 
-	HANDLE InitRecv2();
-	int BeginRecvDecrypt2();
-	int EndRecvDecrypt2(void* buf, unsigned long& size);
+	void InitRecv();
+	int Send(const void* data, unsigned int length, int flag);
+	int BeginRecv();
+	int EndRecv(void* buf, unsigned int* size);
+
+	int UpdateCodeBook(const TCHAR* userName, long long timeStamp);
+	int UpdateServerAddress(const sockaddr* ServerAddr, const sockaddr* dns, int Options);
 public:
+	Client* Current;
+	CodeTable* CodeBook;
+
+	// Statistics info
+	unsigned int sTotalPackagesSend;
+	unsigned int sTotalPackagesRecv;
+	unsigned long long sTotalBytesSend;
+	unsigned long long sTotalBytesRecv;
+
 	CommStatus Status;
-	std::string UserName;
-	unsigned char PasswordMD5[16];
-	CodeTable CodeBook;
 	SOCKET ClientSock;
-	SOCKET ClientSock2;
 
 	sockaddr ServerAddr;
-	sockaddr ServerAddr2;
 	int ServerAddrLen;
 
+#ifdef WIN32
 	WSAOVERLAPPED overlapRead;
-	int readState;
+	char readState;
 	HANDLE readEvent;
-	WSAOVERLAPPED overlapRead2;
-	int readState2;
-	HANDLE readEvent2;
+#endif
 
-	char innerBuf[10000];
+	int PackageHandler(HANDLE hEvent);
+
+	char innerBuf[PACKAGE_BUFFER_SIZE];
 	DWORD innerLength;
-
-	char innerBuf2[10000];
-	DWORD innerLength2;
 };
 
 

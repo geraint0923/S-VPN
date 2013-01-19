@@ -54,6 +54,8 @@ void MD5Decode(unsigned int *output,unsigned char *input,unsigned int len);
 // utility
 void MD5Fast(const void* input, unsigned int len, unsigned char* output);
 
+int parse_md5(unsigned char* md5, const char* str);
+
 #ifdef __cplusplus
 }
 #endif

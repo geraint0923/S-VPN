@@ -1,5 +1,3 @@
-#include "svpn_fd.h"
-#include "server.h"
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -15,11 +13,12 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-#include "svpn_client.h"
-#include "svpn_fd.h"
-#include "svpn_server.h"
+#include "client.h"
+#include "fd.h"
+#include "server.h"
+#include "../compress/compress.h"
 
-#define BUFFER_LENGTH 2000
+using namespace std;
 
 #define	TUN_DEFAULT_NAME "/dev/net/tun"
 
@@ -77,15 +76,15 @@ int svpn_socket_create(struct svpn_socket* ssock,
 	memcpy(&ssock->server_addr, ssock, addr_len);
 	ssock->socket_fd = socket(addr->ss_family, protocol, 0);
 
-	// parameter optimization
+	// parameter optimization TODO:
 	{
 		int n = 1024 * 8;
-		int slen = sizeof(n);
-		if (setsockopt(ssock->socket_fd, SOL_SOCKET, SO_RCVBUF, &n, slen) == -1) {
+		unsigned int slen = sizeof(n);
+		if (setsockopt(ssock->socket_fd, SOL_SOCKET, SO_RCVBUF, &n, slen) == -1)
 			printf("???\n");
-		if (getsockopt(ssock->socket_fd, SOL_SOCKET, SO_RCVBUF, &n, &slen) == -1) {
+		if (getsockopt(ssock->socket_fd, SOL_SOCKET, SO_RCVBUF, &n, &slen) == -1)
 			printf("wrong arg?\n");
-			printf("recvbuf = %d\n", n);
+		printf("recvbuf = %d\n", n);
 	}
 
 	if (ssock->socket_fd < 0)
@@ -106,23 +105,30 @@ int svpn_socket_create(struct svpn_socket* ssock,
 	return 0;
 }
 
-int svpn_socket_create(struct svpn_socket* ssock,
-		const char* addr, int flags)
+int svpn_socket_create_ex(struct svpn_socket* ssock,
+		const char* addr, unsigned short port, int flags)
 {
 	// domain name unsupported currently
 	int ret;
 	struct sockaddr_storage saddr;
 	// create address
 	if (flags & SOCKET_IPV6)
-		ret = inet_pton(AF_INET6, addr, saddr);
+	{
+		ret = inet_pton(AF_INET6, addr, &saddr);
+		((struct sockaddr_in6*)&saddr)->sin6_port = htons(port);
+	}
 	else if (flags & SOCKET_IPV4)
-		ret = inet_pton(AF_INET, addr, saddr);
+	{
+		saddr.ss_family = AF_INET;
+		ret = inet_pton(AF_INET, addr, &(((struct sockaddr_in*)&saddr)->sin_addr));
+		((struct sockaddr_in*)&saddr)->sin_port = htons(port);
+	}
 	else
 		ret = -1;
 	if (ret < 0)
 		return ret;
 
-	return svpn_socket_create(ssock, saddr, flags);
+	return svpn_socket_create(ssock, &saddr, flags);
 }
 
 int svpn_socket_release(struct svpn_socket* ssock)
@@ -132,21 +138,77 @@ int svpn_socket_release(struct svpn_socket* ssock)
 
 int svpn_sockets_init()
 {
+	int ret;
+	rapidxml::xml_node<>* xnetwork = psc->config->first_node("network");
+	if (xnetwork == NULL)
+		return -1;
+
 	psc->sockets.socket_count = 0;
-	// load from config
-	xml_node_t rt = ;
+	// first traverse, count only
+	rapidxml::xml_node<>* xsocket;
+	for (xsocket = xnetwork->first_node("socket"); xsocket; xsocket = xsocket->next_sibling("socket"))
+		psc->sockets.socket_count++;
+	psc->sockets.sockets_list = new svpn_socket[psc->sockets.socket_count];
+	// second traverse, initialize
+	struct svpn_socket* ssock = &psc->sockets.sockets_list[0];
+	for (xsocket = xnetwork->first_node("socket"); xsocket; xsocket = xsocket->next_sibling("socket"))
+	{
+		int sflag = 0;
+		const char* xflag_type = xsocket->first_attribute("type")->value();
+		const char* xflag_protocol = xsocket->first_attribute("protocol")->value();
+
+		if (strcasecmp(xflag_type, "IPv4") == 0)
+			sflag |= SOCKET_IPV4;
+		else if (strcasecmp(xflag_type, "IPv6") == 0)
+			sflag |= SOCKET_IPV6;
+		else
+		{
+			delete [] psc->sockets.sockets_list;
+			return -1;
+		}
+
+		if (strcasecmp(xflag_protocol, "TCP") == 0)
+			sflag |= SOCKET_TCP;
+		else if (strcasecmp(xflag_protocol, "UDP") == 0)
+			sflag |= SOCKET_UDP;
+		else
+		{
+			delete [] psc->sockets.sockets_list;
+			return -1;
+		}
+
+		if ((ret < svpn_socket_create_ex(ssock, xsocket->first_attribute("address")->value(),
+				atoi(xsocket->first_attribute("port")->value()), sflag)) < 0)
+		{
+			fprintf(stderr, "error creating socket %08x\n", ssock);
+			continue;
+		}
+		ssock++;
+	}
+	if (ssock == psc->sockets.sockets_list) // no sockets created
+	{
+		delete [] psc->sockets.sockets_list;
+		return -1;
+	}
+	// restrict sockets count, ignore those failed ones
+	// maybe some waste in memory, don't mind the details . FIXME: reallocate memory
+	psc->sockets.socket_count = ssock - psc->sockets.sockets_list;
+	return 0;
 }
 
 int svpn_sockets_release()
 {
+	return 0;
 }
 
-int socket_recvfrom(int sock_id, unsigned char* buffer, int* len, int* flag,
+int socket_recvfrom(int sock_id, unsigned char* buffer, size_t* len, int* flag,
 		struct sockaddr_storage* addr, socklen_t* addr_len)
 {
 	fd_t fd = psc->sockets.sockets_list[sock_id].socket_fd;
 	// only for udp protocol, ipv4 & v6 compatible
-	unsigned char* rawbuf[BUFFER_LENGTH];
+	unsigned char __rawbuf[BUFFER_LENGTH];
+	unsigned char* rawbuf = __rawbuf;
+	unsigned char sflag;
 	int recved;
 	if ((recved = recvfrom(fd, rawbuf, BUFFER_LENGTH, 0,
 			(struct sockaddr*)addr, addr_len)) < 0)
@@ -157,58 +219,58 @@ int socket_recvfrom(int sock_id, unsigned char* buffer, int* len, int* flag,
 		*len = 0;
 		return 0;
 	}
-	//
-	recved--;
+	// get flag
+	sflag = rawbuf[0];
 	*flag = rawbuf[0];
-	// uncompress
-	if (rawbuf[0] & PACKAGE_COMPRESSED)
-	{
-		decompress(buffer, &recved, rawbuf +1, recved);
-	}
-	else
-		memcpy(buffer, rawbuf + 1, recved);
+	recved--;
+	rawbuf++;
 	// decrypt
-	if (!(rawbuf[0] & PACKAGE_UNENCRYPTED))
+	if (!(sflag & PACKAGE_UNENCRYPTED))
 	{
 		// check user status
-		int client_id = find_client_by_remote_addr(sock_id, addr, addr_len);
+		int client_id = find_client_by_remote_addr(sock_id, addr, *addr_len);
 		if (client_id < 0)
 		{
 			fprintf(stderr, "[Error] Could not find correspond user.\n");
 			return -SVPN_USER_NOTFOUND;
 		}
-		decrypt(psc->clients.clients_list[client_id]->table,
-				buffer, recved, buffer, &recved);
+		svpn_decrypt(&psc->clients.clients_list[client_id]->table,
+				rawbuf, rawbuf, recved);
 	}
+	// uncompress
+	if (sflag & PACKAGE_COMPRESSED)
+		decompress(buffer, (size_t*)&recved, rawbuf, recved);
+	else
+		memcpy(buffer, rawbuf, recved);
 	*len = recved;
 	return 0;
 }
 
 int socket_sendto(int sock_id, const unsigned char* buffer, size_t len, int flag,
-		const struct sockaddr_storage* addr, socklen_t addr_len)
+		const struct sockaddr_storage* addr, socklen_t addr_len, int client_id)
 {
 	fd_t fd = psc->sockets.sockets_list[sock_id].socket_fd;
 	// only for udp protocol, ipv4 & v6 compatible
-	unsigned char* rawbuf[BUFFER_LENGTH];
+	unsigned char __rawbuf[BUFFER_LENGTH];
+	unsigned char* rawbuf = __rawbuf +1;
+	// compress
+	if (flag & PACKAGE_COMPRESSED)
+		compress(rawbuf, &len, buffer, len);
+	else
+		memcpy(rawbuf, buffer, len);
 	// encrypt
 	if (!(flag & PACKAGE_UNENCRYPTED))
 	{
 		// check user status
-		// don't needed anymore, the address must be fetched from the cache
-		decrypt(psc->clients.clients_list[client_id]->table,
-				buffer, len, buffer, &len);
+		if (client_id < 0)
+			printf("error.\n");
+		svpn_decrypt(&psc->clients.clients_list[client_id]->table,
+				rawbuf, rawbuf, len);
 	}
-	// compress
-	if (rawbuf[0] & PACKAGE_COMPRESSED)
-	{
-		compress(rawbuf +1, buffer, &len, buffer, len);
-	}
-	else
-		memcpy(rawbuf + 1, buffer, len);
-
-	rawbuf[0] = flag;
+	rawbuf--;
 	len++;
-	return sendto(fd, rawbuf, len, (struct sockaddr*)addr, addr_len);
+	*rawbuf = flag;
+	return sendto(fd, rawbuf, len, 0, (struct sockaddr*)addr, addr_len);
 }
 
 int tun_recv(unsigned char* buffer, size_t* len, int* flag)

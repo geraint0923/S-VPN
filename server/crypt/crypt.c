@@ -5,7 +5,7 @@
 #include "../crypt/crypt.h"
 
 // password md5 must have a length of 16
-void BuildTable(struct CodeTable* ct, const unsigned char* passmd5, const long long timestamp)
+void build_table(struct code_table* ct, const unsigned char* passmd5, const long long timestamp)
 {
 	const int PRIME_FOR_GEN = 47;
 	int i, j;
@@ -37,7 +37,7 @@ void BuildTable(struct CodeTable* ct, const unsigned char* passmd5, const long l
 		ct->decode[ct->encode[i]] = (unsigned char)i;
 }
 
-void Encrypt(const struct CodeTable* ct, const void* input, void* output, unsigned int len)
+void svpn_encrypt(const struct code_table* ct, const void* input, void* output, unsigned int len)
 {
 	unsigned char* uinput = (unsigned char*)input;
 	unsigned char* uoutput = (unsigned char*)output;
@@ -47,7 +47,7 @@ void Encrypt(const struct CodeTable* ct, const void* input, void* output, unsign
 		uoutput[i] = ct->encode[uinput[i]];
 }
 
-void Decrypt(const struct CodeTable* ct, const void* input, void* output, unsigned int len)
+void svpn_decrypt(const struct code_table* ct, const void* input, void* output, unsigned int len)
 {
 	unsigned char* uinput = (unsigned char*)input;
 	unsigned char* uoutput = (unsigned char*)output;

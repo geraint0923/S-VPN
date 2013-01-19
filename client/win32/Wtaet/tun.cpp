@@ -7,6 +7,7 @@
 #include <stdio.h>
 
 #include "tun.h"
+#include "Client.h"
 
 //=============
 // TAP IOCTLs
@@ -77,7 +78,7 @@ struct TunAdaptersInfo
 };
 
 void QueryTunAdapterInfo(TunAdaptersInfo* info)
-{ 
+{
 	info->Count = 0;
 
 	LSTATUS ret;
@@ -175,8 +176,7 @@ void QueryTunAdapterInfo(TunAdaptersInfo* info)
 	RegCloseKey(hKeyAdapters);
 }
 
-
-TunDriver* TunDriver::OpenDriver(int ID)
+int TunDriver::Open()
 {
 	TunAdaptersInfo tunAdaptsInfo;
 	QueryTunAdapterInfo(&tunAdaptsInfo);
@@ -228,14 +228,30 @@ TunDriver* TunDriver::OpenDriver(int ID)
 		ep[1] = inet_addr("192.168.3.0");
 		ep[2] = inet_addr("255.255.255.0");
 
-	//		ep[0] = inet_addr("10.3.0.1");
-	//ep[1] = inet_addr("10.3.0.0");
-	//ep[2] = inet_addr("255.255.255.0");
-
 		BOOL statusd = DeviceIoControl(fd, TAP_IOCTL_CONFIG_TUN, ep, sizeof(ep), ep, sizeof(ep), &len, NULL);
 		if (statusd == FALSE)
 		{
 			printf("Set TUN IPaddress Failed.\n");
+			CloseHandle(fd);
+			return NULL;
+		}
+	}
+
+	{
+		DWORD ep[4];
+		ep[0] = inet_addr("192.168.3.6");
+		ep[1] = inet_addr("255.255.255.0");
+		ep[2] = inet_addr("255.255.255.0");
+		ep[3] = htonl(3600);
+
+	//		ep[0] = inet_addr("10.3.0.1");
+	//ep[1] = inet_addr("10.3.0.0");
+	//ep[2] = inet_addr("255.255.255.0");
+
+		BOOL statusd = DeviceIoControl(fd, TAP_IOCTL_CONFIG_DHCP_MASQ, ep, sizeof(ep), ep, sizeof(ep), &len, NULL);
+		if (statusd == FALSE)
+		{
+			printf("Set TUN DHCP Failed.\n");
 			CloseHandle(fd);
 			return NULL;
 		}
@@ -253,21 +269,27 @@ TunDriver* TunDriver::OpenDriver(int ID)
 	}
 	
 	// create new driver struct
-	TunDriver* tun = new TunDriver();
-	tun->fd = fd;
-	tun->mtu = mtu;
-	return tun;
+	fd = fd;
+	mtu = mtu;
+	return 0;
 }
+//
+//int TunDriver::UpdateLocalAddress(const sockaddr* localAddr, int flag)
+//{
+//	printf("UpdateLocalAddress, not impelemtned.\n");
+//}
 
 TunDriver::TunDriver()
 {
 }
 
-//int TunDriver::ReadPackage(void* buf, unsigned long* psize)
-//{
-//	BOOL ret = ReadFile(fd, buf, PACKAGE_BUFFER_SIZE, psize, NULL);
-//	return  (ret == FALSE) ? -1 : 0;
-//}
+int TunDriver::PackageRecvedHandler()
+{
+	unsigned char buf[BUFFER_LENGTH];
+	size_t size;
+	EndRead(buf, &size);
+	return Current->account->ForwardFromTun();
+}
 
 HANDLE TunDriver::InitRead()
 {
@@ -280,7 +302,8 @@ HANDLE TunDriver::InitRead()
 
 int TunDriver::BeginRead()
 {
-	if (ReadFile(fd, innerBuf, 10000, &innerLength, &overlapRead))
+	Current->RegisterEvent(readEvent, this, TunDriver::PackageRecvedHandler);	
+	if (ReadFile(fd, rawBuf, 10000, &rawBufLen, &overlapRead))
 	{
 		readState = 1;
 		SetEvent(readEvent);
@@ -323,7 +346,10 @@ int TunDriver::Write(const void* buf, unsigned long size)
 	BOOL ret = WriteFile(fd, buf, size, &written, &olp);
 //	printf("Err %d %d\n", ret, GetLastError());
 	if (ret == FALSE || written != size)
+	{
+		printf("Send to TUN Falied!\n\n\n\n\n");
 		return -1;
+	}
 	else
 		return 0;
 }
