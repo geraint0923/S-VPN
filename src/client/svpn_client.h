@@ -1,0 +1,32 @@
+#ifndef __SVPN_CLIENT_H__
+#define __SVPN_CLIENT_H__
+
+#include <pthread.h>
+#include <netinet/in.h>
+#include <signal.h>
+#include "crypt.h"
+
+#define DEV_NAME_LEN	128
+
+struct svpn_client {
+	char dev_name[DEV_NAME_LEN];
+	int sock_fd;
+	struct sockaddr_in server_addr; 
+	int tun_fd;
+	pthread_t recv_tid;
+	pthread_t send_tid;
+	pthread_t handle_tid;
+	int recv_thread_on;
+	int send_thread_on;
+	struct CodeTable table;
+	struct sigaction old_act;
+};
+
+struct svpn_client *svpn_init(char *addr, unsigned short port, 
+		unsigned char *pwd_md5_16, long long timestamp);
+
+int svpn_handle_thread(struct svpn_client* pvoid);
+
+int svpn_release(struct svpn_client *psc);
+
+#endif
