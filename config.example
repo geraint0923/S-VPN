@@ -1,0 +1,6 @@
+port 123
+local 192.168.3.1
+user 6 a
+user 3 b
+user 8 c
+
