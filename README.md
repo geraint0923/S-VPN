@@ -34,6 +34,14 @@ No Configuration needed, just run the command:
 There will be a tunnel named tunX being set up, you could route the packet as
 you like.
 
+Note: please the route rule to your server manually, like:
+
+	route add -net X.X.X.X(your server's IP) gw 192.168.3.1
+
+or
+
+	route add -net X.X.X.X dev tunX(the tunnel used by VPN)
+
 
 ##Server
 Need a config file, like config.example:
